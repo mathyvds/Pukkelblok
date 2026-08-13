@@ -1,6 +1,6 @@
 import type { InfoBoard, PlayerMove, PublicPlayer, PublicWorld, Status } from "../shared/protocol";
-import { clampMove, inZone, solidsOf, type World } from "../shared/world";
-import { drawHomeNest, drawStaticTent, drawStringLights, drawWarmSpots } from "./tent-art";
+import { clampMove, inTableBubble, inZone, nearestStudyTable, solidsOf, studyTableById, type World } from "../shared/world";
+import { drawHomeNest, drawStaticTent, drawStringLights, drawTableBubble, drawWarmSpots } from "./tent-art";
 
 export type WorldPerson = PublicPlayer & {
   walkT: number;
@@ -14,12 +14,23 @@ export type WorldHandlers = {
   onMove?: (pos: { x: number; y: number; facing: 1 | -1; moving: boolean }) => void;
   onSit?: (deskId: number) => void;
   onSitSpot?: (spotId: string) => void;
+  onJoinTable?: (tableId: string) => void;
+  onLeaveTable?: () => void;
   onStand?: () => void;
+  onPrompt?: (prompt: TablePrompt | null) => void;
   onClickPerson?: (id: string) => void;
   onBarIce?: () => void;
 };
 
 type TouchDir = "up" | "down" | "left" | "right";
+
+export type TablePrompt = {
+  action: "join" | "leave";
+  tableId: string;
+  label: string;
+  seated: number;
+  max: number;
+};
 
 const SPEED = 220;
 export const STATUS_COLOR: Record<Status, string> = {
@@ -54,6 +65,7 @@ const state = {
   mounted: false,
   minimap: null as HTMLCanvasElement | null,
   board: null as InfoBoard | null,
+  prompt: null as TablePrompt | null,
 };
 
 export function mount(opts: {
@@ -144,6 +156,7 @@ export function applyMoves(moves: PlayerMove[]) {
     p.moving = m.moving;
     p.sittingDeskId = m.sittingDeskId;
     p.sittingSpotId = m.sittingSpotId ?? p.sittingSpotId ?? null;
+    if (m.tableId !== undefined) p.tableId = m.tableId;
   }
 }
 
@@ -156,6 +169,12 @@ export function isNearby(id: string, range?: number) {
   const p = state.players.get(id);
   if (!self || !p) return false;
   if (p.id === self.id) return true;
+  const mine = myBubbleId();
+  if (mine) {
+    if (self.inDate) return p.dateTableId === self.dateTableId;
+    if (self.talkCircleId) return p.talkCircleId === self.talkCircleId;
+    return p.tableId === mine && inTableBubble(p.status, p.sittingDeskId);
+  }
   const dist = Math.hypot((p.ix ?? p.x) - self.x, (p.iy ?? p.y) - self.y);
   return dist <= (range || state.world?.proximity || 420);
 }
@@ -214,12 +233,25 @@ export function myPlaceHint() {
   if (self.sittingSpotId?.startsWith("stool")) return "Koffiehoek · je zit aan de bar";
   if (self.sittingSpotId?.startsWith("lounge")) return "Lounge · je zit op de bank";
   if (self.talkCircleId) return "Lounge · praatcirkel — geen timer";
+  if (inTableBubble(self.status, self.sittingDeskId)) {
+    const table = studyTableById(w, self.tableId);
+    return table ? `${table.label} · bubbel — alleen zij horen je` : "Tafelbubbel";
+  }
   if (inZone(w, self.x, self.y, "coffee")) return "Koffiehoek · hier mag je praten";
   if (inZone(w, self.x, self.y, "lounge")) return "Lounge · schuif aan bij een cirkel";
   if (inZone(w, self.x, self.y, "speeddate")) return "Speeddate-hoek";
   if (self.sittingDeskId) return `Je zit aan bureau ${self.sittingDeskId}`;
   if (self.homeDeskId) return `Jouw bureau: ${self.homeDeskId}`;
   return "";
+}
+
+export function myBubbleId() {
+  const self = me();
+  if (!self) return null;
+  if (self.inDate) return self.dateTableId;
+  if (self.talkCircleId) return self.talkCircleId;
+  if (inTableBubble(self.status, self.sittingDeskId)) return self.tableId;
+  return null;
 }
 
 export function setTouch(dir: TouchDir, down: boolean) {
@@ -248,6 +280,21 @@ function onKey(e: KeyboardEvent) {
   if (shouldIgnoreKey(e)) return;
   state.keys[e.key.toLowerCase()] = true;
   if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
+  if (e.key.toLowerCase() === "e" && !e.repeat) {
+    e.preventDefault();
+    actOnPrompt();
+  }
+}
+
+function actOnPrompt() {
+  const prompt = currentPrompt();
+  if (!prompt) return;
+  if (prompt.action === "leave") state.handlers.onLeaveTable?.();
+  else state.handlers.onJoinTable?.(prompt.tableId);
+}
+
+export function confirmTablePrompt() {
+  actOnPrompt();
 }
 
 function onKeyUp(e: KeyboardEvent) {
@@ -266,6 +313,18 @@ function onClick(e: MouseEvent) {
   const desk = hitDesk(worldPt.x, worldPt.y);
   if (desk) {
     state.handlers.onSit?.(desk.id);
+    state.target = null;
+    state.followId = null;
+    return;
+  }
+  const table = hitTable(worldPt.x, worldPt.y);
+  if (table) {
+    const selfNow = me();
+    if (selfNow && inTableBubble(selfNow.status, selfNow.sittingDeskId) && selfNow.tableId === table.id) {
+      state.handlers.onLeaveTable?.();
+    } else {
+      state.handlers.onJoinTable?.(table.id);
+    }
     state.target = null;
     state.followId = null;
     return;
@@ -315,7 +374,21 @@ function hitPerson(x: number, y: number) {
 }
 
 function hitDesk(x: number, y: number) {
-  return state.world?.desks.find((d) => x >= d.x && x <= d.x + d.w && y >= d.y && y <= d.y + d.h + 40) || null;
+  return (
+    state.world?.desks.find((d) => {
+      const dx = Math.abs(x - d.seatX);
+      const dy = Math.abs(y - d.seatY);
+      return dx <= 32 && dy <= 28;
+    }) || null
+  );
+}
+
+function hitTable(x: number, y: number) {
+  return (
+    state.world?.tables?.find(
+      (t) => x >= t.x - 8 && x <= t.x + t.w + 8 && y >= t.y - 8 && y <= t.y + t.h + 8
+    ) || null
+  );
 }
 
 function takenSpots() {
@@ -428,6 +501,7 @@ function update(dt: number) {
   self.ix = self.x;
   self.iy = self.y;
   if (moving) self.walkT += dt * 10;
+  refreshPrompt();
 
   for (const p of state.players.values()) {
     if (p.id === state.meId || p.tx == null || p.ty == null) continue;
@@ -478,6 +552,51 @@ function ensureCache() {
   state.cache = c;
 }
 
+function tableSeatedCount(tableId: string) {
+  let n = 0;
+  for (const p of state.players.values()) {
+    if (p.tableId === tableId && inTableBubble(p.status, p.sittingDeskId)) n += 1;
+  }
+  return n;
+}
+
+function currentPrompt(): TablePrompt | null {
+  const self = me();
+  const w = state.world;
+  if (!self || !w || self.inDate || self.status === "studeren") return null;
+  if (inTableBubble(self.status, self.sittingDeskId) && self.tableId) {
+    const table = studyTableById(w, self.tableId);
+    if (!table) return null;
+    return {
+      action: "leave",
+      tableId: table.id,
+      label: table.label,
+      seated: tableSeatedCount(table.id),
+      max: table.deskIds.length,
+    };
+  }
+  const near = nearestStudyTable(w, self.x, self.y, 118);
+  if (!near) return null;
+  return {
+    action: "join",
+    tableId: near.id,
+    label: near.label,
+    seated: tableSeatedCount(near.id),
+    max: near.deskIds.length,
+  };
+}
+
+function refreshPrompt() {
+  const next = currentPrompt();
+  const prev = state.prompt;
+  const same =
+    (next && prev && next.action === prev.action && next.tableId === prev.tableId && next.seated === prev.seated) ||
+    (!next && !prev);
+  if (same) return;
+  state.prompt = next;
+  state.handlers.onPrompt?.(next);
+}
+
 function draw() {
   const ctx = state.ctx;
   const w = state.world;
@@ -491,9 +610,14 @@ function draw() {
   drawWarmSpots(ctx, w, t);
   drawStringLights(ctx, w, t);
   const self = me();
+  const bubbleId = myBubbleId();
+  for (const table of w.tables || []) {
+    const n = tableSeatedCount(table.id);
+    drawTableBubble(ctx, table, Boolean(n) || bubbleId === table.id);
+  }
   if (self?.homeDeskId) {
     const home = w.desks.find((d) => d.id === self.homeDeskId);
-    if (home) drawHomeNest(ctx, home);
+    if (home) drawHomeNest(ctx, home, self.deskStyle);
   }
   ctx.globalAlpha = 1;
   for (const circle of w.talkCircles || []) {
@@ -560,6 +684,10 @@ function paintMinimap() {
   fillZone("coffee", "rgba(255,180,40,0.34)");
   fillZone("lounge", "rgba(233,30,140,0.22)");
   fillZone("speeddate", "rgba(255,230,0,0.16)");
+  ctx.fillStyle = "rgba(212,188,58,0.28)";
+  for (const table of w.tables || []) {
+    ctx.fillRect(table.x * sx, table.y * sy, table.w * sx, table.h * sy);
+  }
   ctx.strokeStyle = "rgba(255,230,0,0.35)";
   ctx.lineWidth = 1;
   for (const c of w.talkCircles) {
@@ -616,6 +744,8 @@ function syncDom() {
     el.classList.toggle("silent", p.status === "studeren");
     el.classList.toggle("dnd", p.status === "studeren");
     el.classList.toggle("in-circle", Boolean(p.talkCircleId));
+    el.classList.toggle("bot", Boolean(p.isBot));
+    el.classList.toggle("in-bubble", Boolean(p.tableId) && inTableBubble(p.status, p.sittingDeskId));
     (el.querySelector(".torso") as HTMLElement).style.background = p.color || "#FFE600";
     const img = el.querySelector(".face") as HTMLImageElement;
     if (img.getAttribute("src") !== p.avatarUrl) img.src = p.avatarUrl;
@@ -650,12 +780,27 @@ function syncDom() {
       bubble.className = "bubble";
     }
     if (self && p.id !== self.id) {
+      const bubbleId = myBubbleId();
       const dist = Math.hypot((p.ix ?? p.x) - self.x, (p.iy ?? p.y) - self.y);
       const range = state.world?.proximity || 420;
-      el.style.opacity = silent ? "0.78" : dist > range ? "0.42" : "1";
-      if (dist > range) bubble.className = "bubble";
+      const mate =
+        bubbleId &&
+        ((self.inDate && p.dateTableId === self.dateTableId) ||
+          (self.talkCircleId && p.talkCircleId === self.talkCircleId) ||
+          (p.tableId === bubbleId && inTableBubble(p.status, p.sittingDeskId)));
+      if (bubbleId && !mate) {
+        el.style.opacity = "0.18";
+        el.classList.add("faded");
+        bubble.className = "bubble";
+      } else {
+        el.classList.remove("faded");
+        el.style.opacity = silent ? "0.78" : dist > range ? "0.42" : "1";
+        if (dist > range && !mate) bubble.className = "bubble";
+      }
     } else {
+      el.classList.remove("faded");
       el.style.opacity = "1";
     }
   }
+  refreshPrompt();
 }

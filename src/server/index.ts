@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import { Server } from "socket.io";
 import { createWorld, HOST_MOMENT_COPY, onboardText, publicWorld } from "../shared/world";
 import { createStore } from "./store";
+import { createBots } from "./bots";
 import {
   MAX_ONLINE,
   parseAvatar,
@@ -16,7 +17,7 @@ import {
   validateReportReason,
   validateWave,
 } from "../shared/validate";
-import { DAY_SLOT_IDS, HOST_MOMENTS, joinSchema, type ClientToServerEvents, type DaySlotId, type HostMomentId, type ServerToClientEvents } from "../shared/protocol";
+import { DAY_SLOT_IDS, HOST_MOMENTS, joinSchema, type ChatMessage, type ClientToServerEvents, type DaySlotId, type HostMomentId, type ServerToClientEvents } from "../shared/protocol";
 import { clientKey, cookieSecure, createRateLimit, requireCookieSecret, timingSafeEqualString } from "./security";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -45,7 +46,13 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
 
 const world = createWorld();
 const store = createStore(world);
+const bots = createBots(store);
 const leaveWait = new Map<string, ReturnType<typeof setTimeout>>();
+const enableBots = process.env.SIMULATE === "1" || !isProd;
+
+function emitDisplaced() {
+  for (const pub of store.takeDisplaced()) io.to("tent").emit("player:update", pub);
+}
 
 function cancelLeaveWait(userId: string) {
   const timer = leaveWait.get(userId);
@@ -149,6 +156,7 @@ app.post("/api/join", (req, res) => {
     school: profile.school,
     program: profile.program,
     deskId: profile.deskId,
+    deskStyle: parsed.data.deskStyle,
     avatar,
   });
   if ("error" in result) return res.status(409).json({ error: result.error });
@@ -231,6 +239,7 @@ app.post("/api/host/quiet-round", requireHost, (req, res) => {
   for (const pub of result.players) {
     io.to("tent").emit("player:update", pub);
   }
+  emitDisplaced();
   io.to("tent").emit("announce", { text: result.announce, at: Date.now() });
   res.json({ ok: true, state: store.hostSnapshot() });
 });
@@ -261,6 +270,20 @@ app.post("/api/host/moment", requireHost, (req, res) => {
   const board = store.setBoard({ moment: copy.moment });
   io.to("tent").emit("board", board);
   io.to("tent").emit("announce", { text: copy.announce, at: Date.now() });
+  res.json({ ok: true, state: store.hostSnapshot() });
+});
+
+app.post("/api/host/bots", requireHost, (req, res) => {
+  const clear = Boolean(req.body?.clear);
+  if (clear) {
+    for (const id of bots.despawn()) io.to("tent").emit("player:leave", { id });
+  } else {
+    for (const id of bots.spawnAll()) {
+      const user = store.get(id);
+      if (user) io.to("tent").emit("player:join", store.publicUser(user));
+    }
+  }
+  io.to("tent").emit("presence", { online: store.onlineCount(), max: MAX_ONLINE });
   res.json({ ok: true, state: store.hostSnapshot() });
 });
 
@@ -337,6 +360,7 @@ io.on("connection", (socket) => {
       return;
     }
     io.to("tent").emit("player:update", result.user);
+    emitDisplaced();
   });
 
   socket.on("sit:spot", (spotId) => {
@@ -350,6 +374,22 @@ io.on("connection", (socket) => {
     io.to("tent").emit("player:update", result.user);
   });
 
+  socket.on("table:join", (tableId) => {
+    const result = store.joinTable(userId, tableId);
+    if ("error" in result) {
+      socket.emit("notice", { type: "error", text: result.error });
+      const me = store.get(userId);
+      if (me) socket.emit("player:correct", store.publicUser(me));
+      return;
+    }
+    io.to("tent").emit("player:update", result.user);
+  });
+
+  socket.on("table:leave", () => {
+    const pub = store.leaveTable(userId);
+    if (pub) io.to("tent").emit("player:update", pub);
+  });
+
   socket.on("stand", () => {
     const pub = store.stand(userId);
     if (pub) io.to("tent").emit("player:update", pub);
@@ -359,6 +399,7 @@ io.on("connection", (socket) => {
     const dated = store.getDate(userId);
     const pub = store.setStatus(userId, data?.status, data?.statusText, data?.studyMinutes);
     if (pub) io.to("tent").emit("player:update", pub);
+    emitDisplaced();
     if (dated && !store.getDate(userId)) {
       const other = dated.a === userId ? dated.b : dated.a;
       emitToSocket(userId, (id) => io.to(id).emit("speeddate:ended", { reason: "leave" }));
@@ -640,6 +681,31 @@ async function attachFrontend() {
 
 await attachFrontend();
 
+if (enableBots) bots.spawnAll();
+
+let botAcc = 0;
+setInterval(() => {
+  if (!enableBots && !store.listBots().length) return;
+  botAcc += 0.25;
+  const events = bots.step(0.25);
+  for (const ev of events) {
+    if (ev.kind === "update") {
+      io.to("tent").emit("player:update", ev.payload as ReturnType<typeof store.publicUser>);
+    }
+    if (ev.kind === "chat") {
+      const result = ev.payload as { msg: ChatMessage; ids: string[] };
+      const speaker = store.get(result.msg.from);
+      for (const id of result.ids) {
+        emitToSocket(id, (sid) => {
+          io.to(sid).emit("chat", result.msg);
+          if (speaker) io.to(sid).emit("player:update", store.publicUser(speaker));
+        });
+      }
+    }
+  }
+}, 250);
+
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Pukkelblok (PKP26) op http://localhost:${PORT} (${isProd ? "prod" : "dev"})`);
+  if (enableBots) console.log(`Simulatie: ${store.listBots().length} AI-studenten in de tent`);
 });

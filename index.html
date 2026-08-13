@@ -76,6 +76,13 @@
       <div class="desk-grid" id="desk-grid"></div>
       <input type="hidden" id="desk-id" name="deskId" required/>
       <div class="avatar-block">
+        <p class="label">Sfeer van jouw bureau</p>
+        <p class="mini">Zichtbaar op jouw plek: laptop, stapel boeken of een festivalhoekje.</p>
+        <div class="desk-style-row" id="desk-style-row">
+          <button type="button" class="desk-style sel" data-style="laptop">Laptop</button>
+          <button type="button" class="desk-style" data-style="boeken">Boeken</button>
+          <button type="button" class="desk-style" data-style="festival">Festival</button>
+        </div>
         <p class="label">Jouw avatar</p>
         <div class="avatar-preview-wrap">
           <img id="avatar-preview" alt="Voorbeeld avatar" src="/avatars/1.svg"/>
@@ -144,6 +151,11 @@
           <span id="date-hud-timer">3:00</span>
           <button type="button" class="btn-ghost" id="date-hud-leave">Tafel verlaten</button>
         </div>
+        <div id="table-prompt" hidden>
+          <p id="table-prompt-copy">Aansluiten aan deze tafel</p>
+          <button type="button" class="btn-primary" id="table-prompt-btn">Aansluiten · E</button>
+        </div>
+        <div id="bubble-veil" hidden></div>
         <canvas id="minimap" width="176" height="136" aria-label="Minimap van de tent"></canvas>
         <div id="world-dom">
           <div id="avatars"></div>
@@ -210,7 +222,7 @@
     </div>
 
     <footer id="bot-hud">
-      <span>Studeren = niet storen. WASD = pauze. Minimap rechtsonder. Lounge = bank + cirkel; koffiehoek = praten; blokzone = stilte.</span>
+      <span>Studeren = niet storen. WASD = pauze. E = aansluiten of tafel verlaten. Tafels zijn bubbels: alleen zij horen je.</span>
       <span id="desk-hint"></span>
     </footer>
   </div>
