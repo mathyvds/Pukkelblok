@@ -44,6 +44,9 @@
     document.getElementById("s-study").textContent = String(zoneCount("study"));
     document.getElementById("s-lounge").textContent = String(zoneCount("lounge"));
     document.getElementById("s-bar").textContent = String(zoneCount("coffee"));
+    document.getElementById("s-bar").textContent = String(zoneCount("coffee"));
+    const botsEl = document.getElementById("s-bots");
+    if (botsEl) botsEl.innerHTML = `<b>${state.bots || 0}</b> bots`;
     const reportCount = (state.reports || []).length;
     document.getElementById("s-reports").textContent = String(reportCount);
     const reportsWrap = document.getElementById("reports-wrap");
@@ -100,7 +103,7 @@
         (p) => `<tr>
           <td>${esc(p.firstName)} ${esc(p.lastName)}</td>
           <td>${esc(p.study || "—")}</td>
-          <td>${esc(p.status)}</td>
+          <td>${esc(p.status)}${p.isBot ? " · sim" : ""}</td>
           <td>${p.sittingDeskId || "—"}</td>
           <td><button class="kick" data-id="${p.id}">Zet eruit</button></td>
         </tr>`
@@ -230,6 +233,22 @@
   }
   document.getElementById("quiet-25").addEventListener("click", () => quietRound(25));
   document.getElementById("quiet-50").addEventListener("click", () => quietRound(50));
+  document.getElementById("bots-spawn").addEventListener("click", async () => {
+    try {
+      const next = await api("/api/host/bots", { method: "POST", body: JSON.stringify({}) });
+      render(next.state);
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+  document.getElementById("bots-clear").addEventListener("click", async () => {
+    try {
+      const next = await api("/api/host/bots", { method: "POST", body: JSON.stringify({ clear: true }) });
+      render(next.state);
+    } catch (e) {
+      alert(e.message);
+    }
+  });
   document.getElementById("day-card").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-slot]");
     if (!btn) return;

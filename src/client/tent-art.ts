@@ -1,4 +1,4 @@
-import type { Desk, PublicWorld, Seat, Zone } from "../shared/protocol";
+import type { Desk, DeskStyle, PublicWorld, Seat, StudyTable, Zone } from "../shared/protocol";
 
 const YELLOW = "#d4bc3a";
 const YELLOW_LIT = "#ffe66a";
@@ -260,45 +260,118 @@ function drawBar(ctx: CanvasRenderingContext2D, bar: Zone, stools: Seat[]) {
 }
 
 function drawStage(ctx: CanvasRenderingContext2D, stage: Zone) {
-  roundRect(ctx, stage.x, stage.y + 48, stage.w, stage.h - 36, 8, "#2a221c");
+  const deckY = stage.y + 78;
+  const deckH = stage.h - 78;
+  roundRect(ctx, stage.x + 36, deckY, stage.w - 72, deckH, 10, "#1a1614");
   ctx.fillStyle = WOOD;
-  ctx.fillRect(stage.x + 10, stage.y + stage.h - 18, stage.w - 20, 14);
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(stage.x + 40, stage.y + 8, stage.w - 80, 52);
+  ctx.fillRect(stage.x + 48, stage.y + stage.h - 22, stage.w - 96, 16);
+  ctx.fillStyle = "rgba(255, 230, 0, 0.12)";
+  ctx.fillRect(stage.x + 70, deckY + 8, stage.w - 140, 10);
+
+  ctx.fillStyle = "#0c0c0e";
+  ctx.fillRect(stage.x + 80, stage.y + 6, stage.w - 160, 64);
   ctx.fillStyle = YELLOW;
-  ctx.globalAlpha = 0.85;
-  ctx.font = "800 64px Bebas Neue, sans-serif";
+  ctx.globalAlpha = 0.92;
+  ctx.font = "800 62px Bebas Neue, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("CLUB", stage.x + stage.w / 2, stage.y + 54);
-  ctx.globalAlpha = 0.7;
+  ctx.fillText("CLUB", stage.x + stage.w / 2, stage.y + 56);
+  ctx.globalAlpha = 0.85;
   ctx.fillStyle = PINK;
-  ctx.font = "600 16px Geist, sans-serif";
-  ctx.fillText("Pukkelblok  ·  dag vóór PKP  ·  Kiewit", stage.x + stage.w / 2, stage.y + 78);
+  ctx.font = "700 15px Geist, sans-serif";
+  ctx.fillText("Pukkelblok  ·  PKP26  ·  Kiewit", stage.x + stage.w / 2, stage.y + 78);
+
   ctx.globalAlpha = 1;
   ctx.fillStyle = "#c9b496";
   ctx.font = "500 13px Geist, sans-serif";
-  ctx.fillText("Podium nog leeg. Morgen gaat het los — vanavond is van de blok.", stage.x + stage.w / 2, stage.y + 118);
+  ctx.fillText("Podium staat. Vanavond van de blok — morgen gaat het los.", stage.x + stage.w / 2, deckY + 36);
   ctx.textAlign = "left";
+
+  function speaker(x: number, y: number, flip: boolean) {
+    roundRect(ctx, x, y, 54, 88, 6, "#141414");
+    ctx.fillStyle = "#2a2a28";
+    ctx.beginPath();
+    ctx.arc(x + 27, y + 28, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 27, y + 64, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = YELLOW;
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + 27, y + 28, 10, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = PINK;
+    ctx.globalAlpha = 0.5;
+    ctx.fillRect(x + (flip ? 44 : 6), y + 8, 6, 14);
+    ctx.globalAlpha = 1;
+  }
+  speaker(stage.x + 52, deckY + 18, false);
+  speaker(stage.x + stage.w - 106, deckY + 18, true);
+
+  ctx.strokeStyle = "#3a3a38";
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(stage.x + 120, deckY - 4);
+  ctx.lineTo(stage.x + stage.w - 120, deckY - 4);
+  ctx.stroke();
+  for (let i = 0; i < 9; i++) {
+    const x = stage.x + 160 + i * ((stage.w - 320) / 8);
+    ctx.fillStyle = i % 2 ? PINK_LIT : YELLOW_LIT;
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.moveTo(x, deckY - 4);
+    ctx.lineTo(x - 10, deckY + 22);
+    ctx.lineTo(x + 10, deckY + 22);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
   ctx.strokeStyle = "#6a6a66";
   ctx.lineWidth = 4;
+  const micX = stage.x + stage.w / 2;
   ctx.beginPath();
-  ctx.arc(stage.x + 90, stage.y + stage.h - 8, 16, 0, Math.PI * 2);
+  ctx.arc(micX, stage.y + stage.h - 10, 14, 0, Math.PI * 2);
   ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(stage.x + 90, stage.y + stage.h - 24);
-  ctx.lineTo(stage.x + 90, stage.y + 92);
-  ctx.lineTo(stage.x + 118, stage.y + 80);
+  ctx.moveTo(micX, stage.y + stage.h - 24);
+  ctx.lineTo(micX, deckY + 48);
+  ctx.lineTo(micX + 28, deckY + 36);
   ctx.stroke();
   ctx.fillStyle = "#1a1a1a";
   ctx.beginPath();
-  ctx.ellipse(stage.x + 126, stage.y + 78, 8, 5, 0.4, 0, Math.PI * 2);
+  ctx.ellipse(micX + 36, deckY + 34, 9, 6, 0.4, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "#3a3a38";
+
+  ctx.fillStyle = "#2a2420";
+  ctx.beginPath();
+  ctx.ellipse(micX - 90, stage.y + stage.h - 18, 22, 10, 0, 0, Math.PI * 2);
+  ctx.ellipse(micX + 90, stage.y + stage.h - 18, 22, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBunting(ctx: CanvasRenderingContext2D, x: number, y: number, w: number) {
+  ctx.strokeStyle = "rgba(20,14,10,0.45)";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(stage.x + 160, stage.y + stage.h - 10);
-  ctx.bezierCurveTo(stage.x + 200, stage.y + stage.h + 10, stage.x + 240, stage.y + stage.h - 30, stage.x + 280, stage.y + stage.h - 8);
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(x + w / 2, y + 18, x + w, y);
   ctx.stroke();
+  const n = Math.floor(w / 42);
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n;
+    const px = x + t * w;
+    const py = y + Math.sin(t * Math.PI) * 14;
+    ctx.fillStyle = i % 3 === 1 ? PINK : i % 3 === 2 ? "#111" : YELLOW;
+    ctx.beginPath();
+    ctx.moveTo(px - 10, py);
+    ctx.lineTo(px + 10, py);
+    ctx.lineTo(px, py + 18);
+    ctx.closePath();
+    ctx.fill();
+  }
 }
 
 function drawProgram(ctx: CanvasRenderingContext2D, info: Zone) {
@@ -344,25 +417,147 @@ function drawLounge(ctx: CanvasRenderingContext2D, lounge: Zone, world: PublicWo
   }
 }
 
-function drawDesk(ctx: CanvasRenderingContext2D, d: Desk) {
-  roundRect(ctx, d.x, d.y, d.w, d.h, 8, "#5a3e2a");
-  roundRect(ctx, d.x + 8, d.y + 8, d.w - 16, 28, 4, "#2a1e16");
-  ctx.fillStyle = "rgba(232, 176, 96, 0.08)";
-  ctx.fillRect(d.x + 10, d.y + 10, d.w - 20, 6);
-  roundRect(ctx, d.x + d.w - 34, d.y + d.h - 24, 26, 16, 3, "#3a2a18");
-  ctx.fillStyle = "#e8d5a8";
-  ctx.font = "700 12px Geist, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(d.label, d.x + d.w - 21, d.y + d.h - 12);
-  ctx.textAlign = "left";
+function drawChair(ctx: CanvasRenderingContext2D, seatX: number, seatY: number, north: boolean) {
   ctx.fillStyle = "#2a1e16";
   ctx.beginPath();
-  ctx.ellipse(d.seatX, d.seatY + 4, 18, 8, 0, 0, Math.PI * 2);
+  ctx.ellipse(seatX, seatY + 4, 16, 7, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = "#4a3428";
   ctx.beginPath();
-  ctx.ellipse(d.seatX, d.seatY, 16, 7, 0, 0, Math.PI * 2);
+  ctx.ellipse(seatX, seatY, 15, 6, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.fillStyle = WOOD_DARK;
+  if (north) ctx.fillRect(seatX - 11, seatY - 16, 22, 8);
+  else ctx.fillRect(seatX - 11, seatY + 2, 22, 8);
+}
+
+function drawLaptop(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  roundRect(ctx, x, y, 46, 30, 3, "#1a1a1c");
+  roundRect(ctx, x + 3, y + 3, 40, 20, 2, "#243844");
+  ctx.fillStyle = "rgba(180, 220, 255, 0.32)";
+  ctx.fillRect(x + 5, y + 5, 36, 16);
+  ctx.fillStyle = "#2a2420";
+  ctx.fillRect(x + 12, y + 24, 16, 3);
+}
+
+function drawBooks(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.fillStyle = PINK;
+  ctx.globalAlpha = 0.85;
+  ctx.beginPath();
+  ctx.roundRect(x, y, 26, 20, 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#f3ead2";
+  ctx.fillRect(x + 3, y + 3, 20, 14);
+  ctx.fillStyle = "#3a2a18";
+  ctx.fillRect(x + 5, y + 7, 16, 1);
+  ctx.fillRect(x + 5, y + 11, 12, 1);
+  roundRect(ctx, x + 22, y + 4, 10, 24, 2, "#4a7c9c");
+}
+
+function drawPlant(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.fillStyle = "#6a4030";
+  ctx.beginPath();
+  ctx.moveTo(x, y + 18);
+  ctx.lineTo(x + 14, y + 18);
+  ctx.lineTo(x + 11, y + 6);
+  ctx.lineTo(x + 3, y + 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#2f6b3a";
+  ctx.beginPath();
+  ctx.ellipse(x + 4, y + 2, 5, 8, -0.4, 0, Math.PI * 2);
+  ctx.ellipse(x + 10, y, 5, 9, 0.35, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBottle(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.fillStyle = "#4a7c9c";
+  ctx.beginPath();
+  ctx.roundRect(x, y + 6, 10, 18, 3);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
+  ctx.fillRect(x + 2, y + 8, 6, 6);
+  ctx.fillStyle = "#d4bc3a";
+  ctx.fillRect(x + 2, y, 6, 7);
+}
+
+function drawLamp(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.strokeStyle = "#2a2420";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + 8, y + 22);
+  ctx.lineTo(x + 8, y + 8);
+  ctx.lineTo(x + 18, y + 4);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255, 210, 120, 0.55)";
+  ctx.beginPath();
+  ctx.ellipse(x + 20, y + 6, 8, 5, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCans(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  roundRect(ctx, x, y + 4, 9, 16, 3, "#c45b7a");
+  roundRect(ctx, x + 12, y + 6, 9, 14, 3, YELLOW);
+  ctx.fillStyle = "#111";
+  ctx.fillRect(x + 1, y + 8, 7, 3);
+}
+
+function drawHeadphones(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.strokeStyle = "#1a1a1a";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(x + 10, y + 10, 10, Math.PI, 0);
+  ctx.stroke();
+  roundRect(ctx, x - 2, y + 8, 7, 12, 3, "#222");
+  roundRect(ctx, x + 15, y + 8, 7, 12, 3, "#222");
+}
+
+function drawTableProps(ctx: CanvasRenderingContext2D, table: StudyTable, desks: Desk[]) {
+  for (const desk of desks) {
+    const localX = desk.seatX < table.x + table.w / 2 ? table.x + 18 : table.x + table.w - 70;
+    const localY = desk.seatY < table.y ? table.y + 10 : table.y + table.h - 38;
+    const style: DeskStyle = desk.style;
+    if (style === "laptop") {
+      drawLaptop(ctx, localX, localY);
+      if (desk.id % 2 === 0) drawBottle(ctx, localX + 50, localY + 4);
+      else drawHeadphones(ctx, localX + 48, localY + 2);
+    } else if (style === "boeken") {
+      drawBooks(ctx, localX, localY);
+      if (desk.id % 2) drawPlant(ctx, localX + 42, localY);
+      else drawLamp(ctx, localX + 40, localY);
+    } else {
+      drawCans(ctx, localX, localY + 2);
+      if (desk.id % 2) drawLaptop(ctx, localX + 28, localY);
+      else drawBooks(ctx, localX + 30, localY);
+    }
+  }
+}
+
+function drawStudyTable(ctx: CanvasRenderingContext2D, table: StudyTable, desks: Desk[]) {
+  roundRect(ctx, table.x, table.y, table.w, table.h, 10, "#5a3e2a");
+  roundRect(ctx, table.x + 8, table.y + 8, table.w - 16, 26, 4, "#2a1e16");
+  ctx.fillStyle = "rgba(232, 176, 96, 0.1)";
+  ctx.fillRect(table.x + 12, table.y + 10, table.w - 24, 6);
+  ctx.fillStyle = "rgba(20,12,8,0.28)";
+  ctx.fillRect(table.x + 10, table.y + table.h - 14, table.w - 20, 6);
+  drawTableProps(ctx, table, desks);
+  ctx.fillStyle = "#e8d5a8";
+  ctx.font = "800 11px Geist, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(table.label, table.x + table.w / 2, table.y + table.h / 2 + 4);
+  for (const desk of desks) {
+    const north = desk.seatY < table.y;
+    drawChair(ctx, desk.seatX, desk.seatY, north);
+    ctx.fillStyle = YELLOW;
+    ctx.globalAlpha = 0.9;
+    ctx.font = "800 11px Geist, sans-serif";
+    const lx = desk.seatX;
+    const ly = north ? table.y + 22 : table.y + table.h - 10;
+    ctx.fillText(desk.label, lx, ly);
+  }
+  ctx.textAlign = "left";
+  ctx.globalAlpha = 1;
 }
 
 function drawSpeedCorner(ctx: CanvasRenderingContext2D, world: PublicWorld) {
@@ -451,10 +646,30 @@ export function drawStaticTent(ctx: CanvasRenderingContext2D, world: PublicWorld
     ctx.fillText("Koffiehoek · hier mag je praten", coffee.x + 28, coffee.y + coffee.h - 18);
   }
   if (bar) drawBar(ctx, bar, stools);
-  if (stage) drawStage(ctx, stage);
+  if (stage) {
+    drawStage(ctx, stage);
+    drawBunting(ctx, stage.x + 80, stage.y + 86, stage.w - 160);
+  }
   if (info) drawProgram(ctx, info);
   if (lounge) drawLounge(ctx, lounge, world);
-  for (const d of world.desks) drawDesk(ctx, d);
+  const tables = world.tables || [];
+  if (tables.length) {
+    for (const table of tables) {
+      drawStudyTable(
+        ctx,
+        table,
+        world.desks.filter((d) => d.tableId === table.id)
+      );
+    }
+  } else {
+    for (const d of world.desks) {
+      drawStudyTable(
+        ctx,
+        { id: d.tableId || `d-${d.id}`, x: d.x, y: d.y, w: d.w, h: d.h, label: d.label, deskIds: [d.id] },
+        [d]
+      );
+    }
+  }
   drawSpeedCorner(ctx, world);
   drawCrate(ctx, 92, 2268, 78, 54, "CREW");
   drawCrate(ctx, 186, 2284, 58, 42, "PKP");
@@ -468,6 +683,7 @@ export function drawWarmSpots(ctx: CanvasRenderingContext2D, world: PublicWorld,
   const spots = [
     { x: 420, y: 140, r: 220, color: "255, 176, 80", a: 0.16 },
     { x: world.width / 2, y: 160, r: 340, color: "255, 200, 90", a: 0.12 },
+    { x: world.width / 2, y: 210, r: 280, color: "255, 80, 140", a: 0.08 },
     { x: world.width - 420, y: 150, r: 200, color: "220, 120, 140", a: 0.1 },
     { x: 175, y: 900, r: 180, color: "255, 160, 90", a: 0.1 },
     { x: 175, y: 1600, r: 180, color: "255, 160, 90", a: 0.08 },
@@ -488,6 +704,7 @@ export function drawStringLights(ctx: CanvasRenderingContext2D, world: PublicWor
   const strings = [
     { y: 58, count: 28, amp: 5, dim: 1 },
     { y: 116, count: 22, amp: 4, dim: 0.75 },
+    { y: 188, count: 16, amp: 3, dim: 0.55 },
   ];
   for (const s of strings) {
     for (let i = 0; i < s.count; i++) {
@@ -509,38 +726,47 @@ export function drawStringLights(ctx: CanvasRenderingContext2D, world: PublicWor
   ctx.globalAlpha = 1;
 }
 
-export function drawHomeNest(ctx: CanvasRenderingContext2D, desk: Desk) {
-  const g = ctx.createRadialGradient(desk.seatX, desk.y + 20, 10, desk.seatX, desk.y + 20, 130);
-  g.addColorStop(0, "rgba(255, 200, 90, 0.16)");
+export function drawHomeNest(ctx: CanvasRenderingContext2D, desk: Desk, style?: DeskStyle) {
+  const g = ctx.createRadialGradient(desk.seatX, desk.seatY, 8, desk.seatX, desk.seatY, 90);
+  g.addColorStop(0, "rgba(255, 200, 90, 0.22)");
   g.addColorStop(1, "rgba(255, 200, 90, 0)");
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.arc(desk.seatX, desk.y + 30, 130, 0, Math.PI * 2);
+  ctx.arc(desk.seatX, desk.seatY, 90, 0, Math.PI * 2);
   ctx.fill();
-  roundRect(ctx, desk.x + 18, desk.y + 14, 52, 34, 4, "#1a1a1c");
-  roundRect(ctx, desk.x + 22, desk.y + 18, 44, 24, 2, "#2a3a44");
-  ctx.fillStyle = "rgba(180, 220, 255, 0.35)";
-  ctx.fillRect(desk.x + 24, desk.y + 20, 40, 20);
-  ctx.fillStyle = "#2a2420";
-  ctx.fillRect(desk.x + 36, desk.y + 46, 18, 4);
-  ctx.fillStyle = PINK;
-  ctx.globalAlpha = 0.7;
-  ctx.beginPath();
-  ctx.roundRect(desk.x + 78, desk.y + 18, 28, 22, 2);
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "#f3ead2";
-  ctx.fillRect(desk.x + 82, desk.y + 22, 20, 14);
-  ctx.fillStyle = "#3a2a18";
-  ctx.fillRect(desk.x + 84, desk.y + 26, 16, 1);
-  ctx.fillRect(desk.x + 84, desk.y + 30, 12, 1);
-  ctx.fillStyle = "#4a7c9c";
-  ctx.beginPath();
-  ctx.roundRect(desk.x + 116, desk.y + 16, 12, 28, 4);
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.35)";
-  ctx.fillRect(desk.x + 118, desk.y + 18, 8, 8);
+  const north = desk.seatY < desk.y;
+  const px = desk.seatX - 24;
+  const py = north ? desk.y + 12 : desk.y + desk.h - 36;
+  const look = style || desk.style;
+  if (look === "boeken") drawBooks(ctx, px, py);
+  else if (look === "festival") {
+    drawCans(ctx, px, py);
+    drawHeadphones(ctx, px + 28, py);
+  } else drawLaptop(ctx, px, py);
   ctx.fillStyle = PINK;
   ctx.font = "800 10px Geist, sans-serif";
-  ctx.fillText("thuis", desk.x + 16, desk.y + desk.h - 10);
+  ctx.textAlign = "center";
+  ctx.fillText("thuis", desk.seatX, north ? desk.y + 36 : desk.y + desk.h - 8);
+  ctx.textAlign = "left";
+}
+
+export function drawTableBubble(ctx: CanvasRenderingContext2D, table: StudyTable, active: boolean) {
+  const cx = table.x + table.w / 2;
+  const cy = table.y + table.h / 2;
+  const g = ctx.createRadialGradient(cx, cy, 20, cx, cy, 168);
+  g.addColorStop(0, active ? "rgba(255, 230, 106, 0.16)" : "rgba(232, 176, 96, 0.05)");
+  g.addColorStop(1, "rgba(255, 230, 106, 0)");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 168, 0, Math.PI * 2);
+  ctx.fill();
+  if (active) {
+    ctx.strokeStyle = "rgba(255, 230, 106, 0.55)";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 7]);
+    ctx.beginPath();
+    ctx.roundRect(table.x - 36, table.y - 44, table.w + 72, table.h + 88, 22);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 }

@@ -2,24 +2,30 @@ import type {
   DaySlot,
   DaySlotId,
   Desk,
+  DeskStyle,
   InfoBoard,
   PublicWorld,
   School,
   SchoolCorner,
   Seat,
   SpeedTable,
+  StudyTable,
   TalkCircle,
   WorldBlocker,
   Zone,
 } from "./protocol";
-import { CIRCLE_MAX, DESK_COUNT, PAUSE_MS, PROXIMITY } from "./protocol";
+import { CIRCLE_MAX, DESK_COUNT, DESK_STYLES, PAUSE_MS, PROXIMITY, TABLE_SEATS } from "./protocol";
 
 export const WORLD_W = 3200;
 export const WORLD_H = 2480;
-export const PLAYER_R = 28;
+export const PLAYER_R = 22;
 export const MAX_SPEED = 420;
-export const DESK_COLS = 10;
-export const DESK_ROWS = Math.ceil(DESK_COUNT / DESK_COLS);
+export const TABLE_COLS = 5;
+export const TABLE_ROWS = Math.ceil(DESK_COUNT / (TABLE_COLS * TABLE_SEATS));
+export const TABLE_W = 216;
+export const TABLE_H = 96;
+export const TABLE_GAP_X = 136;
+export const TABLE_GAP_Y = 168;
 export { PROXIMITY, PAUSE_MS };
 
 export const DAY_SLOTS: DaySlot[] = [
@@ -75,21 +81,60 @@ export type Box = { x: number; y: number; w: number; h: number; wall?: boolean }
 
 export type World = PublicWorld & { solids: Box[] };
 
-function desk(id: number, x: number, y: number): Desk {
-  return { id, x, y, w: 148, h: 86, seatX: x + 74, seatY: y + 118, label: String(id) };
+function deskStyleFor(id: number): DeskStyle {
+  return DESK_STYLES[(id - 1) % DESK_STYLES.length];
 }
 
-function makeDesks() {
+function makeTablesAndDesks(): { desks: Desk[]; tables: StudyTable[] } {
   const desks: Desk[] = [];
+  const tables: StudyTable[] = [];
+  const originX = 392;
+  const originY = 428;
   let id = 1;
-  for (let row = 0; row < DESK_ROWS; row++) {
-    for (let col = 0; col < DESK_COLS; col++) {
+  let tableN = 1;
+  for (let row = 0; row < TABLE_ROWS; row++) {
+    for (let col = 0; col < TABLE_COLS; col++) {
       if (id > DESK_COUNT) break;
-      desks.push(desk(id, 360 + col * 196, 360 + row * 170));
-      id += 1;
+      const x = originX + col * (TABLE_W + TABLE_GAP_X);
+      const y = originY + row * (TABLE_H + TABLE_GAP_Y);
+      const tableId = `tbl-${tableN}`;
+      const deskIds: number[] = [];
+      const seats = [
+        { ox: 54, oy: -22 },
+        { ox: 162, oy: -22 },
+        { ox: 54, oy: TABLE_H + 30 },
+        { ox: 162, oy: TABLE_H + 30 },
+      ];
+      for (const seat of seats) {
+        if (id > DESK_COUNT) break;
+        deskIds.push(id);
+        desks.push({
+          id,
+          x,
+          y,
+          w: TABLE_W,
+          h: TABLE_H,
+          seatX: x + seat.ox,
+          seatY: y + seat.oy,
+          label: String(id),
+          tableId,
+          style: deskStyleFor(id),
+        });
+        id += 1;
+      }
+      tables.push({
+        id: tableId,
+        x,
+        y,
+        w: TABLE_W,
+        h: TABLE_H,
+        label: `Tafel ${tableN}`,
+        deskIds,
+      });
+      tableN += 1;
     }
   }
-  return desks;
+  return { desks, tables };
 }
 
 function makeSpeedTables(): SpeedTable[] {
@@ -194,16 +239,17 @@ function makeBlockers(): WorldBlocker[] {
 }
 
 export function solidsOf(
-  world: Pick<PublicWorld, "width" | "height" | "desks" | "speedTables" | "blockers">
+  world: Pick<PublicWorld, "width" | "height" | "tables" | "speedTables" | "blockers">
 ): Box[] {
+  const tables = world.tables || [];
   return [
     { x: 0, y: 0, w: world.width, h: 70, wall: true },
     { x: 0, y: world.height - 40, w: world.width, h: 40, wall: true },
     { x: 0, y: 0, w: 40, h: world.height, wall: true },
     { x: world.width - 40, y: 0, w: 40, h: world.height, wall: true },
     ...(world.blockers || []),
-    ...world.desks.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h })),
-    ...world.speedTables.map((t) => ({ x: t.x, y: t.y, w: t.w, h: t.h })),
+    ...tables.map((t) => ({ x: t.x + 10, y: t.y + 8, w: t.w - 20, h: t.h - 16 })),
+    ...world.speedTables.map((t) => ({ x: t.x + 18, y: t.y + 8, w: t.w - 36, h: t.h - 28 })),
   ];
 }
 
@@ -212,7 +258,7 @@ export function seatById(world: Pick<PublicWorld, "seats">, id: unknown) {
 }
 
 export function createWorld(): World {
-  const desks = makeDesks();
+  const { desks, tables } = makeTablesAndDesks();
   const speedTables = makeSpeedTables();
   const talkCircles = makeTalkCircles();
   const seats = makeSeats(talkCircles);
@@ -222,7 +268,7 @@ export function createWorld(): World {
   const zones: Zone[] = [
     { id: "bar", name: "Koffiebar", x: 80, y: 90, w: 720, h: 70 },
     { id: "coffee", name: "Koffiehoek", x: 50, y: 155, w: 780, h: 185 },
-    { id: "stage", name: "Club", x: 840, y: 90, w: 1540, h: 160 },
+    { id: "stage", name: "Club", x: 840, y: 70, w: 1540, h: 230 },
     { id: "info", name: "Dagprogramma", x: WORLD_W - 780, y: 90, w: 700, h: 170 },
     { id: "study", name: "Blokzone", x: 330, y: 340, w: 2100, h: 1850 },
     { id: "speeddate", name: "Speeddate", x: WORLD_W - 460, y: 340, w: 400, h: 1900 },
@@ -233,6 +279,7 @@ export function createWorld(): World {
     height: WORLD_H,
     spawn: { x: WORLD_W / 2, y: WORLD_H - 160 },
     desks,
+    tables,
     speedTables,
     talkCircles,
     zones,
@@ -272,24 +319,103 @@ export function circleHitsBox(x: number, y: number, r: number, box: Box) {
   return (x - nx) ** 2 + (y - ny) ** 2 < r * r;
 }
 
-export function clampMove(world: World, fromX: number, fromY: number, toX: number, toY: number) {
-  let x = Math.max(PLAYER_R + 8, Math.min(world.width - PLAYER_R - 8, toX));
-  let y = Math.max(PLAYER_R + 8, Math.min(world.height - PLAYER_R - 8, toY));
-  for (const box of world.solids) {
-    if (circleHitsBox(x, y, PLAYER_R, box)) {
-      if (!circleHitsBox(x, fromY, PLAYER_R, box)) y = fromY;
-      else if (!circleHitsBox(fromX, y, PLAYER_R, box)) x = fromX;
-      else {
-        x = fromX;
-        y = fromY;
-      }
-    }
+function resolveCircleBox(x: number, y: number, r: number, box: Box) {
+  const inside = x > box.x && x < box.x + box.w && y > box.y && y < box.y + box.h;
+  if (inside) {
+    const left = x - box.x;
+    const right = box.x + box.w - x;
+    const top = y - box.y;
+    const bottom = box.y + box.h - y;
+    const m = Math.min(left, right, top, bottom);
+    if (m === left) return { x: box.x - r, y };
+    if (m === right) return { x: box.x + box.w + r, y };
+    if (m === top) return { x, y: box.y - r };
+    return { x, y: box.y + box.h + r };
   }
+  const nx = Math.max(box.x, Math.min(x, box.x + box.w));
+  const ny = Math.max(box.y, Math.min(y, box.y + box.h));
+  const dx = x - nx;
+  const dy = y - ny;
+  const dist = Math.hypot(dx, dy);
+  if (dist === 0 || dist >= r) return { x, y };
+  const push = (r - dist) / dist + 0.05;
+  return { x: x + dx * push, y: y + dy * push };
+}
+
+export function clampMove(world: World, fromX: number, fromY: number, toX: number, toY: number) {
+  const minX = PLAYER_R + 8;
+  const maxX = world.width - PLAYER_R - 8;
+  const minY = PLAYER_R + 8;
+  const maxY = world.height - PLAYER_R - 8;
+  const hits = (x: number, y: number) => world.solids.some((box) => circleHitsBox(x, y, PLAYER_R, box));
+
+  let x = Math.max(minX, Math.min(maxX, toX));
+  let y = fromY;
+  if (hits(x, y)) {
+    const resolved = resolveCircleBox(x, y, PLAYER_R, world.solids.find((box) => circleHitsBox(x, y, PLAYER_R, box))!);
+    x = Math.max(minX, Math.min(maxX, resolved.x));
+    if (hits(x, y)) x = fromX;
+  }
+
+  y = Math.max(minY, Math.min(maxY, toY));
+  if (hits(x, y)) {
+    const box = world.solids.find((b) => circleHitsBox(x, y, PLAYER_R, b));
+    if (box) {
+      const resolved = resolveCircleBox(x, y, PLAYER_R, box);
+      y = Math.max(minY, Math.min(maxY, resolved.y));
+    }
+    if (hits(x, y)) y = fromY;
+  }
+
+  if (hits(x, y)) return { x: fromX, y: fromY };
   return { x, y };
 }
 
 export function deskById(world: World, id: unknown) {
   return world.desks.find((d) => d.id === Number(id)) || null;
+}
+
+export function studyTableById(world: Pick<PublicWorld, "tables">, id: unknown) {
+  return (world.tables || []).find((t) => t.id === String(id || "")) || null;
+}
+
+export function tableForDesk(world: Pick<PublicWorld, "tables" | "desks">, deskId: unknown) {
+  const desk = world.desks.find((d) => d.id === Number(deskId));
+  if (!desk) return null;
+  return studyTableById(world, desk.tableId);
+}
+
+export function desksOfTable(world: Pick<PublicWorld, "desks">, tableId: string) {
+  return world.desks.filter((d) => d.tableId === tableId);
+}
+
+export function nearestStudyTable(world: Pick<PublicWorld, "tables" | "desks">, x: number, y: number, maxDist = 110) {
+  let best: StudyTable | null = null;
+  let bestD = maxDist;
+  for (const table of world.tables || []) {
+    const cx = table.x + table.w / 2;
+    const cy = table.y + table.h / 2;
+    const d = Math.hypot(x - cx, y - cy);
+    if (d < bestD) {
+      best = table;
+      bestD = d;
+    }
+  }
+  if (best) return best;
+  for (const desk of world.desks) {
+    const d = Math.hypot(x - desk.seatX, y - desk.seatY);
+    if (d < bestD) {
+      best = studyTableById(world, desk.tableId);
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+export function inTableBubble(status: string | undefined, sittingDeskId: number | null | undefined, studyingSilent = true) {
+  if (!sittingDeskId) return false;
+  if (studyingSilent && status === "studeren") return false;
+  return true;
 }
 
 export function publicWorld(world: World): PublicWorld {
@@ -298,6 +424,7 @@ export function publicWorld(world: World): PublicWorld {
     height: world.height,
     spawn: world.spawn,
     desks: world.desks,
+    tables: world.tables,
     speedTables: world.speedTables,
     talkCircles: world.talkCircles,
     zones: world.zones,

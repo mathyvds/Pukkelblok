@@ -35,8 +35,11 @@ export type StudyMinutes = (typeof STUDY_MINUTES)[number];
 export const DEFAULT_STUDY_MINUTES: StudyMinutes = 50;
 export const STUDY_PAUSE_MS = { 25: 5 * 60 * 1000, 50: 10 * 60 * 1000 } as const;
 
-export const chatScopes = ["near", "tent", "circle", "coffee", "date"] as const;
+export const chatScopes = ["near", "tent", "circle", "coffee", "date", "table"] as const;
 export type ChatScope = (typeof chatScopes)[number];
+export const DESK_STYLES = ["laptop", "boeken", "festival"] as const;
+export type DeskStyle = (typeof DESK_STYLES)[number];
+export const TABLE_SEATS = 4;
 
 export type PublicPlayer = {
   id: string;
@@ -64,6 +67,9 @@ export type PublicPlayer = {
   dateTableId: string | null;
   studyUntil: number;
   waving: string;
+  tableId: string | null;
+  deskStyle: DeskStyle;
+  isBot: boolean;
 };
 
 export type ChatMessage = {
@@ -95,6 +101,7 @@ export type PlayerMove = MovePayload & {
   id: string;
   sittingDeskId: number | null;
   sittingSpotId: string | null;
+  tableId?: string | null;
 };
 
 export type Desk = {
@@ -106,6 +113,18 @@ export type Desk = {
   seatX: number;
   seatY: number;
   label: string;
+  tableId: string;
+  style: DeskStyle;
+};
+
+export type StudyTable = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+  deskIds: number[];
 };
 
 export type SpeedTable = {
@@ -203,6 +222,7 @@ export type PublicWorld = {
   height: number;
   spawn: { x: number; y: number };
   desks: Desk[];
+  tables: StudyTable[];
   speedTables: SpeedTable[];
   talkCircles: TalkCircle[];
   zones: Zone[];
@@ -230,6 +250,8 @@ export type ClientToServerEvents = {
   move: (data: MovePayload) => void;
   sit: (deskId: number) => void;
   "sit:spot": (spotId: string) => void;
+  "table:join": (tableId: string) => void;
+  "table:leave": () => void;
   stand: () => void;
   status: (data: { status: Status; statusText?: string; studyMinutes?: number }) => void;
   typing: (data: { typing: boolean }) => void;
@@ -291,6 +313,7 @@ export const joinSchema = z.object({
   school: z.string().min(2).max(40),
   program: z.string().min(2).max(60),
   deskId: z.number().int().min(1).max(DESK_COUNT),
+  deskStyle: z.enum(DESK_STYLES).optional(),
   avatar: z.union([
     z.object({ preset: z.number().int().min(1).max(8) }),
     z.object({ dataUrl: z.string().min(20).max(180_000) }),

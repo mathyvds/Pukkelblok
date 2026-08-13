@@ -7,7 +7,7 @@ import type {
   Status,
   WaveEmoji,
 } from "../shared/protocol";
-import { DESK_COUNT } from "../shared/protocol";
+import { DESK_COUNT, DESK_STYLES, type DeskStyle } from "../shared/protocol";
 import * as world from "./world";
 import { createAmbience } from "./ambience";
 import "./styles.css";
@@ -55,6 +55,10 @@ const ui = {
   chatBadge: $("chat-badge"),
   dmInbox: $("dm-inbox"),
   deskHint: $("desk-hint"),
+  tablePrompt: $("table-prompt"),
+  tablePromptCopy: $("table-prompt-copy"),
+  tablePromptBtn: $("table-prompt-btn") as HTMLButtonElement,
+  bubbleVeil: $("bubble-veil"),
   statusText: $("status-text") as HTMLInputElement,
   filterSchool: $("filter-school") as HTMLSelectElement,
   filterProgram: $("filter-program") as HTMLSelectElement,
@@ -85,6 +89,7 @@ const state = {
   blocked: new Set<string>(),
   reportTarget: null as string | null,
   profileId: null as string | null,
+  deskStyle: "laptop" as DeskStyle,
 };
 
 const ambience = createAmbience();
@@ -211,6 +216,15 @@ $("school").addEventListener("change", () => {
   ui.schoolOther.required = other;
 });
 
+document.querySelectorAll("#desk-style-row .desk-style").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const style = (btn as HTMLElement).dataset.style as DeskStyle;
+    if (!(DESK_STYLES as readonly string[]).includes(style)) return;
+    state.deskStyle = style;
+    document.querySelectorAll("#desk-style-row .desk-style").forEach((b) => b.classList.toggle("sel", b === btn));
+  });
+});
+
 async function loadDesks() {
   try {
     const res = await fetch("/api/desks");
@@ -261,6 +275,7 @@ $("join-form").addEventListener("submit", async (e) => {
           school: ui.school.value === "Andere" ? ui.schoolOther.value : ui.school.value,
           program: ui.program.value,
           deskId: Number(ui.deskId.value),
+          deskStyle: state.deskStyle,
           avatar: state.avatar,
         }),
     });
@@ -311,6 +326,18 @@ function enterTent(user: PublicPlayer) {
       onSitSpot: (spotId) => {
         state.socket?.emit("sit:spot", spotId);
       },
+      onJoinTable: (tableId) => {
+        state.socket?.emit("table:join", tableId);
+      },
+      onLeaveTable: () => {
+        state.socket?.emit("table:leave");
+        const select = $("status-select") as HTMLSelectElement;
+        if (select.value === "studeren") select.value = "pauze";
+        if (state.me) {
+          state.me = { ...state.me, sittingDeskId: null, sittingSpotId: null, tableId: null };
+          syncChatPlace();
+        }
+      },
       onStand: () => {
         state.socket?.emit("stand");
         const select = $("status-select") as HTMLSelectElement;
@@ -323,6 +350,23 @@ function enterTent(user: PublicPlayer) {
         }
       },
       onClickPerson: openProfile,
+      onBarIce: () => state.socket?.emit("ice:say", { source: "bar" }),
+      onPrompt: (prompt) => {
+        if (!prompt) {
+          ui.tablePrompt.hidden = true;
+          return;
+        }
+        ui.tablePrompt.hidden = false;
+        ui.tablePromptBtn.disabled = prompt.action === "join" && prompt.seated >= prompt.max;
+        if (prompt.action === "leave") {
+          ui.tablePromptCopy.textContent = `${prompt.label} · ${prompt.seated}/${prompt.max} — alleen zij horen je`;
+          ui.tablePromptBtn.textContent = "Tafel verlaten · E";
+        } else {
+          ui.tablePromptCopy.textContent = `${prompt.label} · ${prompt.seated}/${prompt.max} stoelen`;
+          ui.tablePromptBtn.textContent = prompt.seated >= prompt.max ? "Tafel vol" : "Aansluiten · E";
+          ui.tablePromptBtn.disabled = prompt.seated >= prompt.max;
+        }
+      },
     },
   });
   connectSocket();
@@ -559,10 +603,7 @@ function connectSocket() {
 }
 
 function isNearbyPlayer(p: PublicPlayer) {
-  const me = state.me;
-  if (!me) return false;
-  if (me.talkCircleId && p.talkCircleId && me.talkCircleId === p.talkCircleId) return true;
-  return Math.hypot(p.x - me.x, p.y - me.y) <= 420;
+  return world.isNearby(p.id);
 }
 
 function showOnboard(text: string) {
@@ -587,6 +628,7 @@ function addChatLine(msg: { from: string; firstName: string; text: string; at: n
     circle: "cirkel",
     coffee: "koffiehoek",
     date: "tafel",
+    table: "tafelbubbel",
   };
   const scope = msg.scope && scopeLabels[msg.scope] ? `<span class="msg-scope">${scopeLabels[msg.scope]}</span>` : "";
   el.innerHTML = `<div class="msg-head"><span class="msg-name">${esc(msg.firstName)}</span>${scope}<span class="msg-time">${time}</span></div><div class="msg-body">${esc(msg.text)}</div>`;
@@ -671,7 +713,7 @@ function renderOnline() {
       return `<button class="online-user${dnd}" data-id="${p.id}">
         <img src="${p.avatarUrl}" alt=""/>
         <span class="u-info"><span class="u-name">${esc(fullName(p))}${you}</span>
-          <span class="u-stat">${esc(statusLabel(p))} · ${esc(p.school)} · bureau ${p.homeDeskId}${p.talkCircleId ? " · cirkel" : ""}${p.inDate ? " · tafel" : ""}</span></span>
+          <span class="u-stat">${esc(statusLabel(p))} · ${esc(p.school)} · bureau ${p.homeDeskId}${p.tableId ? " · tafel" : ""}${p.talkCircleId ? " · cirkel" : ""}${p.inDate ? " · date" : ""}${p.isBot ? " · sim" : ""}</span></span>
       </button>`;
     })
     .join("");
@@ -945,6 +987,7 @@ setInterval(() => {
 }, 1000);
 
 $("btn-speeddate").addEventListener("click", () => $("modal-date").classList.add("open"));
+ui.tablePromptBtn.addEventListener("click", () => world.confirmTablePrompt());
 $("btn-panel").addEventListener("click", () => {
   const collapsed = document.body.classList.toggle("panel-collapsed");
   const btn = $("btn-panel");
@@ -1083,12 +1126,15 @@ function syncChatPlace() {
     ui.chatIn.placeholder = "Je zit in studeermodus — niet storen";
   } else if (me?.inDate) {
     ui.chatIn.placeholder = "Zeg iets aan je tafel…";
+  } else if (me?.tableId) {
+    ui.chatIn.placeholder = "Zeg iets aan deze tafel…";
   } else if (me?.talkCircleId) {
     ui.chatIn.placeholder = "Zeg iets in deze cirkel…";
   } else {
     ui.chatIn.placeholder = "Zeg iets tegen wie in de buurt is…";
   }
   if (me) ui.deskHint.textContent = world.myPlaceHint();
+  ui.bubbleVeil.hidden = !world.myBubbleId();
 }
 
 function showAnnounce(text: string) {

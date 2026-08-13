@@ -139,13 +139,91 @@ test("speeddate koppelt twee wachtenden", () => {
   assert.ok(started[0].ice.length > 0);
 });
 
-test("wereld heeft 100 bureaus", () => {
+test("wereld heeft 100 bureaus in tafelclusters", () => {
   const world = createWorld();
   assert.equal(world.desks.length, DESK_COUNT);
   assert.equal(DESK_COUNT, 100);
   assert.ok(deskById(world, 1));
   assert.ok(deskById(world, 100));
   assert.equal(deskById(world, 101), null);
+  assert.equal(world.desks[0].tableId, world.desks[1].tableId);
+  assert.ok((world.tables || []).length >= 25);
+});
+
+test("je kunt tussen tafels door lopen zonder vast te lopen", () => {
+  const world = createWorld();
+  assert.ok((world.tables || []).length >= 25);
+  const table = world.tables[0];
+  const aisleX = table.x + table.w + 50;
+  const startY = table.y - 40;
+  const end = clampMove(world, aisleX, startY, aisleX, table.y + table.h + 50);
+  assert.ok(end.y > table.y + table.h, "het gangpad naast een tafel blijft open");
+  const across = clampMove(world, table.x - 40, table.y + table.h / 2, table.x + table.w + 40, table.y + table.h / 2);
+  assert.ok(across.x > table.x + table.w - 10 || across.x < table.x + 10, "je glijdt langs het blad, niet erdoor");
+});
+
+test("tafelbubbel: alleen tafelgenoten horen je", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 5 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 6, avatar: { kind: "preset" as const, preset: 2 } }));
+  const c = store.join(guest({ firstName: "Chris", lastName: "Claes", deskId: 21, avatar: { kind: "preset" as const, preset: 3 } }));
+  if (!("user" in a) || !("user" in b) || !("user" in c)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.connect(c.user.id, "s3");
+  store.setStatus(a.user.id, "kennismaken");
+  store.setStatus(b.user.id, "kennismaken");
+  store.setStatus(c.user.id, "kennismaken");
+  const table = store.world.tables.find((t) => t.deskIds.includes(5));
+  assert.ok(table);
+  const joinedA = store.joinTable(a.user.id, table!.id);
+  const joinedB = store.joinTable(b.user.id, table!.id);
+  assert.ok("user" in joinedA && "user" in joinedB);
+  assert.equal(joinedA.user.tableId, table!.id);
+  assert.equal(joinedB.user.tableId, table!.id);
+  const chat = store.addChat(a.user, "alleen deze tafel", "speak");
+  assert.ok("msg" in chat && chat.msg.scope === "table");
+  if ("ids" in chat) {
+    assert.ok(chat.ids.includes(a.user.id));
+    assert.ok(chat.ids.includes(b.user.id));
+    assert.equal(chat.ids.includes(c.user.id), false);
+  }
+});
+
+test("studeren aan je bureau is geen sociale bubbel", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 5 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  const pub = store.publicUser(a.user);
+  assert.equal(pub.tableId, null);
+  assert.equal(pub.isBot, false);
+});
+
+test("AI-bots kunnen de tent vullen om te simuleren", () => {
+  const store = createStore(createWorld());
+  const bot = store.join({
+    firstName: "Lina",
+    lastName: "Peeters",
+    age: 21,
+    school: "PXL",
+    program: "Informatica",
+    deskId: 5,
+    isBot: true,
+    deskStyle: "laptop",
+    avatar: { kind: "preset", preset: 1 },
+  });
+  if (!("user" in bot)) throw new Error("expected bot");
+  store.markSimulatedOnline(bot.user.id);
+  assert.equal(store.publicUser(bot.user).isBot, true);
+  assert.equal(store.onlineCount(), 1);
+  store.setStatus(bot.user.id, "kennismaken");
+  const table = store.world.tables.find((t) => t.deskIds.includes(5));
+  const sat = store.joinTable(bot.user.id, table!.id);
+  assert.ok("user" in sat);
+  assert.equal(sat.user.tableId, table!.id);
+  store.clearBots();
+  assert.equal(store.listBots().length, 0);
 });
 
 test("zitten aan bureau 100", () => {
@@ -407,6 +485,7 @@ test("studeermodus blokkeert chat en shout", () => {
   assert.ok("error" in speak);
   assert.ok("error" in shout);
   store.setStatus(a.user.id, "kennismaken", "");
+  store.stand(a.user.id);
   a.user.x = 120;
   a.user.y = 220;
   const ok = store.addChat(a.user, "koffie?", "speak");

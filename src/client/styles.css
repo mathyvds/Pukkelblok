@@ -869,6 +869,74 @@ kbd {
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 }
+#table-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 9;
+  background: rgba(12, 10, 8, 0.94);
+  border: 2px solid var(--color-pkp);
+  border-radius: 16px;
+  padding: 0.7rem 0.9rem 0.85rem;
+  text-align: center;
+  min-width: 240px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+#table-prompt[hidden] {
+  display: none;
+}
+#table-prompt-copy {
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-bottom: 0.45rem;
+  color: #f3ead2;
+}
+#bubble-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: radial-gradient(circle at center, transparent 18%, rgba(8, 6, 4, 0.62) 72%);
+}
+#bubble-veil[hidden] {
+  display: none;
+}
+.desk-style-row {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 1rem;
+}
+.desk-style {
+  flex: 1;
+  background: #1a1612;
+  color: #f3ead2;
+  border: 1px solid #3a2e22;
+  border-radius: 10px;
+  padding: 0.55rem 0.4rem;
+  font-weight: 800;
+  font-size: 0.78rem;
+}
+.desk-style.sel {
+  border-color: var(--color-pkp);
+  color: var(--color-pkp);
+  background: rgba(255, 230, 0, 0.08);
+}
+.person.faded {
+  filter: grayscale(0.7) blur(0.2px);
+  pointer-events: none;
+}
+.person.bot .nametag::after {
+  content: "sim";
+  display: block;
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-pkp);
+}
+.person.in-bubble .nametag {
+  border-color: var(--color-pkp);
+}
 #date-hud {
   position: absolute;
   top: 12px;

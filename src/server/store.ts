@@ -30,7 +30,24 @@ import {
   WHISPER_PROXIMITY,
 } from "../shared/protocol";
 import { shirtColor, validateStatus, validateStatusText, validateStudyMinutes, type AvatarPhoto, type AvatarPreset } from "../shared/validate";
-import { boardFromSlot, clampMove, defaultBoard, deskById, ICEBREAKERS, inCircle, inZone, MAX_SPEED, seatById, type World } from "../shared/world";
+import {
+  boardFromSlot,
+  clampMove,
+  defaultBoard,
+  deskById,
+  desksOfTable,
+  ICEBREAKERS,
+  inCircle,
+  inTableBubble,
+  inZone,
+  MAX_SPEED,
+  seatById,
+  studyTableById,
+  tableForDesk,
+  type World,
+} from "../shared/world";
+import type { DeskStyle } from "../shared/protocol";
+import { DESK_STYLES } from "../shared/protocol";
 import { loadHostState, saveHostState, type KickRecord } from "./persist";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -82,6 +99,8 @@ export type User = {
   waveUntil: number;
   lastWaveAt: number;
   blocked: Set<string>;
+  deskStyle: DeskStyle;
+  isBot: boolean;
 };
 
 type DateMatch = {
@@ -112,6 +131,7 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
   const kicked: KickRecord[] = [...loaded.kicked];
   const reports: Report[] = [...loaded.reports];
   let board: InfoBoard = world.board || defaultBoard();
+  let lastDisplaced: PublicPlayer[] = [];
 
   function persistHost() {
     if (!persistPath) return;
@@ -153,7 +173,20 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
       dateTableId: user.dateTableId,
       studyUntil: user.studyUntil || 0,
       waving: user.waving || "",
+      tableId: socialTableId(user),
+      deskStyle: user.deskStyle,
+      isBot: Boolean(user.isBot),
     };
+  }
+
+  function socialTableId(user: User) {
+    if (user.dateTableId) return user.dateTableId;
+    if (!inTableBubble(user.status, user.sittingDeskId)) return null;
+    return tableForDesk(world, user.sittingDeskId)?.id || null;
+  }
+
+  function parseDeskStyle(value: unknown): DeskStyle {
+    return (DESK_STYLES as readonly string[]).includes(String(value)) ? (value as DeskStyle) : "laptop";
   }
 
   function isSilent(user: User) {
@@ -271,7 +304,9 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
         study: p.program,
         status: p.status,
         sittingDeskId: p.sittingDeskId,
+        isBot: p.isBot,
       })),
+      bots: listOnline().filter((p) => p.isBot).length,
     };
   }
 
@@ -330,8 +365,10 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
     program: string;
     deskId: number;
     avatar: AvatarInput;
+    deskStyle?: DeskStyle;
+    isBot?: boolean;
   }): { user: User } | { error: string } {
-    if (isKickedSid(input.sid) || isKickedIdentity(identityKey(input.firstName, input.lastName, input.age))) {
+    if (!input.isBot && (isKickedSid(input.sid) || isKickedIdentity(identityKey(input.firstName, input.lastName, input.age)))) {
       return { error: "Je bent uit de tent gezet. Vraag de host als dat een vergissing was." };
     }
     let user = input.sid ? getBySid(input.sid) : null;
@@ -344,6 +381,8 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
     if (!occupyDesk(desk.id, user?.id || "")) {
       return { error: `Bureau ${desk.id} is al bezet. Kies het nummer van jouw tafel.` };
     }
+
+    const style = parseDeskStyle(input.deskStyle ?? desk.style);
 
     if (!user) {
       user = {
@@ -387,6 +426,8 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
         waveUntil: 0,
         lastWaveAt: 0,
         blocked: new Set<string>(),
+        deskStyle: style,
+        isBot: Boolean(input.isBot),
       };
       users.set(user.id, user);
       sessions.set(user.sid, user.id);
@@ -408,6 +449,7 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
       user.dateTableId = null;
       user.studyUntil = Date.now() + studyDurationMs(DEFAULT_STUDY_MINUTES);
       user.lastStudyMinutes = DEFAULT_STUDY_MINUTES;
+      user.deskStyle = style;
     }
 
     if (input.avatar.kind === "preset") {
@@ -504,18 +546,39 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
       moving: user.moving,
       sittingDeskId: null,
       sittingSpotId: null,
+      tableId: null,
     });
     return corrected ? publicUser(user) : null;
   }
 
-  function sit(userId: string, deskId: unknown): { user: PublicPlayer } | { error: string } {
+  function seatTaken(deskId: number, userId: string) {
+    for (const user of users.values()) {
+      if (user.id === userId) continue;
+      if (user.sittingDeskId === deskId && (user.online || user.present)) return true;
+    }
+    return false;
+  }
+
+  function displaceSeat(deskId: number, exceptId: string) {
+    const displaced: PublicPlayer[] = [];
+    for (const user of users.values()) {
+      if (user.id === exceptId) continue;
+      if (user.sittingDeskId !== deskId) continue;
+      user.sittingDeskId = null;
+      displaced.push(publicUser(user));
+    }
+    return displaced;
+  }
+
+  function sit(userId: string, deskId: unknown): { user: PublicPlayer; displaced?: PublicPlayer[] } | { error: string } {
     const user = get(userId);
     const desk = deskById(world, deskId);
     if (!user || !desk) return { error: "Dit bureau bestaat niet." };
     if (dates.has(userId)) return { error: "Je zit nog aan een speeddate-tafel." };
-    if (!occupyDesk(desk.id, user.id)) return { error: "Dit bureau is al bezet." };
+    if (seatTaken(desk.id, user.id)) return { error: "Deze stoel is al bezet." };
     user.sittingDeskId = desk.id;
     user.sittingSpotId = null;
+    user.talkCircleId = null;
     user.x = desk.seatX;
     user.y = desk.seatY;
     user.moving = false;
@@ -527,6 +590,31 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
       }
     }
     return { user: publicUser(user) };
+  }
+
+  function joinTable(userId: string, tableId: unknown): { user: PublicPlayer } | { error: string } {
+    const user = get(userId);
+    const table = studyTableById(world, tableId);
+    if (!user || !table) return { error: "Deze tafel bestaat niet." };
+    if (dates.has(userId)) return { error: "Je zit nog aan een speeddate-tafel." };
+    const seats = desksOfTable(world, table.id);
+    const current = seats.find((d) => d.id === user.sittingDeskId);
+    if (current) return { user: publicUser(user) };
+    const home = seats.find((d) => d.id === user.homeDeskId && !seatTaken(d.id, user.id));
+    const free = home || seats.find((d) => !seatTaken(d.id, user.id));
+    if (!free) return { error: "Deze tafel is vol. Probeer een andere." };
+    if (user.status === "studeren") {
+      user.status = "pauze";
+      user.studyUntil = 0;
+      if (!user.pauseUntil || user.pauseUntil < Date.now()) {
+        user.pauseUntil = Date.now() + PAUSE_MS;
+      }
+    }
+    return sit(userId, free.id);
+  }
+
+  function leaveTable(userId: string) {
+    return stand(userId);
   }
 
   function sitSpot(userId: string, spotId: unknown): { user: PublicPlayer } | { error: string } {
@@ -591,6 +679,7 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
       user.bubbleUntil = 0;
       const desk = deskById(world, user.homeDeskId);
       if (desk) {
+        lastDisplaced = lastDisplaced.concat(displaceSeat(desk.id, user.id));
         user.sittingDeskId = desk.id;
         user.sittingSpotId = null;
         user.x = desk.seatX;
@@ -676,6 +765,14 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
       return {
         ids: [date.a, date.b].filter((id) => get(id)?.online && !isBlocked(me.id, id)),
         scope: "date",
+      };
+    }
+
+    const tableId = socialTableId(me);
+    if (tableId) {
+      return {
+        ids: onlineMatching((u) => socialTableId(u) === tableId && !isSilent(u) && !isBlocked(me.id, u.id)),
+        scope: "table",
       };
     }
 
@@ -1225,6 +1322,61 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
     return chat.filter((m) => m.scope === "tent").slice(-50);
   }
 
+  function takeDisplaced() {
+    const out = lastDisplaced;
+    lastDisplaced = [];
+    return out;
+  }
+
+  function markSimulatedOnline(userId: string) {
+    const user = get(userId);
+    if (!user) return null;
+    user.online = true;
+    user.present = true;
+    user.isBot = true;
+    user.socketId = `bot:${user.id}`;
+    user.disconnectedAt = undefined;
+    return publicUser(user);
+  }
+
+  function botMove(userId: string, x: number, y: number) {
+    const user = get(userId);
+    if (!user || !user.isBot || dates.has(userId)) return null;
+    if (seated(user)) return publicUser(user);
+    const next = clampMove(world, user.x, user.y, x, y);
+    const facing: 1 | -1 = next.x < user.x - 0.4 ? -1 : next.x > user.x + 0.4 ? 1 : user.facing;
+    user.x = next.x;
+    user.y = next.y;
+    user.facing = facing;
+    user.moving = Math.hypot(next.x - x, next.y - y) > 4;
+    user.lastMoveAt = Date.now();
+    pendingMoves.push({
+      id: user.id,
+      x: user.x,
+      y: user.y,
+      facing: user.facing,
+      moving: user.moving,
+      sittingDeskId: null,
+      sittingSpotId: null,
+      tableId: null,
+    });
+    return publicUser(user);
+  }
+
+  function listBots() {
+    return [...users.values()].filter((u) => u.isBot);
+  }
+
+  function clearBots() {
+    const removed: string[] = [];
+    for (const user of [...users.values()]) {
+      if (!user.isBot) continue;
+      removeUser(user.id, "leave");
+      removed.push(user.id);
+    }
+    return removed;
+  }
+
   return {
     world,
     join,
@@ -1235,6 +1387,8 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
     move,
     sit,
     sitSpot,
+    joinTable,
+    leaveTable,
     stand,
     setStatus,
     startQuietRound,
@@ -1284,5 +1438,10 @@ export function createStore(world: World, opts?: { persistPath?: string }) {
     finishDisconnect,
     logout,
     removeUser,
+    takeDisplaced,
+    markSimulatedOnline,
+    botMove,
+    listBots,
+    clearBots,
   };
 }
