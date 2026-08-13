@@ -101,16 +101,17 @@
         <span id="me-name"></span>
       </div>
       <span id="pause-timer" class="pause-timer" hidden>Pauze 10:00</span>
+      <span id="study-timer" class="study-timer" hidden>Blok 50:00</span>
+      <div id="study-mins" class="study-mins" hidden>
+        <button type="button" data-mins="25">25</button>
+        <button type="button" data-mins="50">50</button>
+      </div>
       <select id="status-select" title="Status">
         <option value="kennismaken">Klaar om kennis te maken</option>
         <option value="studeren">Studeren</option>
         <option value="pauze">Pauze (10 min)</option>
       </select>
       <input id="status-text" maxlength="60" autocomplete="off" placeholder="bv. statistiek, arrest, pauze tot 11u" title="Korte status, zichtbaar voor anderen"/>
-      <div class="block-btns" title="Bloktimer: stil studeren, daarna pauze. Geen XP.">
-        <button type="button" class="btn-hud" id="block-25" title="25 min stil, daarna 5 min pauze">25 min</button>
-        <button type="button" class="btn-hud" id="block-50" title="50 min stil, daarna 10 min pauze">50 min</button>
-      </div>
       <button class="btn-hud" id="btn-speeddate">Speeddate</button>
       <button class="btn-hud" id="btn-logout">Uitloggen</button>
     </header>
@@ -119,6 +120,14 @@
       <div id="viewport">
         <canvas id="world"></canvas>
         <div id="announce-banner" hidden></div>
+        <div id="date-hud" hidden>
+          <p class="date-hud-kicker">Speeddate</p>
+          <strong id="date-hud-title">Tafel</strong>
+          <p id="date-hud-ice"></p>
+          <span id="date-hud-timer">3:00</span>
+          <button type="button" class="btn-ghost" id="date-hud-leave">Tafel verlaten</button>
+        </div>
+        <canvas id="minimap" width="176" height="136" aria-label="Minimap van de tent"></canvas>
         <div id="world-dom">
           <div id="avatars"></div>
         </div>
@@ -182,7 +191,7 @@
     </div>
 
     <footer id="bot-hud">
-      <span>Studeren = niet storen (geen chat). WASD = pauze. Chat is in de buurt; 📣 is de hele tent.</span>
+      <span>Studeren = niet storen. WASD = pauze. Minimap rechtsonder. Lounge = cirkels; koffiehoek = praten.</span>
       <span id="desk-hint"></span>
     </footer>
   </div>
@@ -195,6 +204,7 @@
       <p class="prof-status" id="prof-status"></p>
       <p class="prof-meta" id="prof-meta"></p>
       <p class="prof-meta" id="prof-school"></p>
+      <button class="btn-ghost wide" id="prof-walk">Loop naar deze student</button>
       <button class="btn-primary wide" id="prof-dm">Stuur een privébericht</button>
     </div>
   </div>
@@ -202,7 +212,8 @@
   <div class="modal-bg" id="modal-date">
     <div class="modal" role="dialog">
       <h3>Speeddate</h3>
-      <p id="date-copy">Drie minuten, één iemand, één ijsbreker. Daarna mag je verder chatten.</p>
+      <p id="date-copy">Je wordt aan een tafel in de tent gezet. Drie minuten, één ijsbreker. Daarna mag je aan tafel verder praten.</p>
+      <p class="mini">De lounge is om gewoon aan te schuiven — zonder timer, zonder matching.</p>
       <label class="check-row">
         <input type="checkbox" id="date-same-study"/>
         Liever iemand met dezelfde studierichting

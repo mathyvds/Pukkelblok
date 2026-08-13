@@ -1,12 +1,12 @@
 import {
-  BLOCK_MINUTES,
   DESK_COUNT,
   MAX_AVATAR_BYTES,
   MAX_CHAT,
   MAX_ONLINE,
+  STUDY_MINUTES,
   statuses,
-  type BlockMinutes,
   type Status,
+  type StudyMinutes,
 } from "./protocol";
 
 export { MAX_ONLINE, MAX_AVATAR_BYTES, MAX_CHAT };
@@ -66,9 +66,9 @@ export function validateStatusText(value: unknown) {
     .slice(0, 60);
 }
 
-export function validateBlockMinutes(value: unknown): BlockMinutes | null {
+export function validateStudyMinutes(value: unknown): StudyMinutes | null {
   const n = Number(value);
-  return BLOCK_MINUTES.includes(n as BlockMinutes) ? (n as BlockMinutes) : null;
+  return STUDY_MINUTES.includes(n as StudyMinutes) ? (n as StudyMinutes) : null;
 }
 
 export function validateChat(text: unknown): ChatOk | Fail {

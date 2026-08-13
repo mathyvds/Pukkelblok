@@ -6,9 +6,9 @@ import {
   validateChat,
   shirtColor,
   validateStatusText,
-  validateBlockMinutes,
+  validateStudyMinutes,
 } from "../src/shared/validate";
-import { createWorld, clampMove, deskById, PLAYER_R } from "../src/shared/world";
+import { createWorld, clampMove, deskById, inZone, PLAYER_R } from "../src/shared/world";
 import { createStore } from "../src/server/store";
 import { DESK_COUNT, joinSchema } from "../src/shared/protocol";
 
@@ -34,10 +34,10 @@ test("statusText: trim en max 60", () => {
 });
 
 test("blokminuten: alleen 25 of 50", () => {
-  assert.equal(validateBlockMinutes(25), 25);
-  assert.equal(validateBlockMinutes(50), 50);
-  assert.equal(validateBlockMinutes(10), null);
-  assert.equal(validateBlockMinutes("40"), null);
+  assert.equal(validateStudyMinutes(25), 25);
+  assert.equal(validateStudyMinutes(50), 50);
+  assert.equal(validateStudyMinutes(10), null);
+  assert.equal(validateStudyMinutes("40"), null);
 });
 
 test("avatar: preset en te grote foto", () => {
@@ -208,21 +208,6 @@ test("opstaan uit studeermodus start de pauze-timer", () => {
   assert.ok((pub?.pauseUntil || 0) > Date.now());
 });
 
-test("studeren dempt proximity-chat en shout, zonder spraakwolk", () => {
-  const store = createStore(createWorld());
-  const a = store.join(guest({ deskId: 5 }));
-  if (!("user" in a)) throw new Error("expected user");
-  const chat = store.addChat(a.user, "hallo", "near");
-  assert.ok("error" in chat);
-  assert.equal(a.user.bubble, "");
-  const shout = store.addChat(a.user, "iedereen", "tent");
-  assert.ok("error" in shout);
-  store.stand(a.user.id);
-  const after = store.addChat(a.user, "pauze-praat", "near");
-  assert.ok("msg" in after);
-  assert.equal(a.user.bubble, "pauze-praat");
-});
-
 test("statusText blijft staan als pauze afloopt", () => {
   const store = createStore(createWorld());
   const a = store.join(guest({ deskId: 8 }));
@@ -230,7 +215,7 @@ test("statusText blijft staan als pauze afloopt", () => {
   store.setStatus(a.user.id, "pauze", "arrest");
   assert.equal(a.user.statusText, "arrest");
   a.user.pauseUntil = Date.now() - 1;
-  const { pauseEnded } = store.tickTimers();
+  const pauseEnded = store.tickPauses();
   assert.equal(pauseEnded.length, 1);
   assert.equal(pauseEnded[0].status, "studeren");
   assert.equal(pauseEnded[0].statusText, "arrest");
@@ -240,46 +225,43 @@ test("statusText wijzigen wist de bloktimer niet", () => {
   const store = createStore(createWorld());
   const a = store.join(guest({ deskId: 9 }));
   if (!("user" in a)) throw new Error("expected user");
-  const block = store.startBlock(a.user.id, 25);
-  assert.ok("user" in block);
-  const until = block.user.blockUntil;
+  store.setStatus(a.user.id, "studeren", "", 25);
+  const until = a.user.studyUntil;
   const again = store.setStatus(a.user.id, "studeren", "statistiek");
   assert.equal(again?.statusText, "statistiek");
-  assert.equal(again?.blockUntil, until);
-  assert.equal(again?.blockMinutes, 25);
+  assert.equal(again?.studyUntil, until);
 });
 
 test("blok van 25 min eindigt in 5 min pauze", () => {
   const store = createStore(createWorld());
   const a = store.join(guest({ deskId: 11 }));
   if (!("user" in a)) throw new Error("expected user");
-  const block = store.startBlock(a.user.id, 25);
-  assert.ok("user" in block);
-  assert.equal(block.user.status, "studeren");
-  assert.ok(block.user.blockUntil > Date.now() + 24 * 60 * 1000);
-  a.user.blockUntil = Date.now() - 1;
-  const { blockEnded } = store.tickTimers();
-  assert.equal(blockEnded.length, 1);
-  assert.equal(blockEnded[0].pauseMinutes, 5);
-  assert.equal(blockEnded[0].user.status, "pauze");
-  assert.ok(blockEnded[0].user.pauseUntil > Date.now() + 4 * 60 * 1000);
-  assert.equal(blockEnded[0].user.blockUntil, 0);
+  store.setStatus(a.user.id, "studeren", undefined, 25);
+  assert.ok(a.user.studyUntil > Date.now() + 24 * 60 * 1000);
+  a.user.studyUntil = Date.now() - 1;
+  const ended = store.tickStudyTimers();
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].status, "pauze");
+  assert.ok(ended[0].pauseUntil > Date.now() + 4 * 60 * 1000);
+  assert.equal(ended[0].studyUntil, 0);
 });
 
 test("blok van 50 min eindigt in 10 min pauze", () => {
   const store = createStore(createWorld());
   const a = store.join(guest({ deskId: 13 }));
   if (!("user" in a)) throw new Error("expected user");
-  store.startBlock(a.user.id, 50);
-  a.user.blockUntil = Date.now() - 1;
-  const { blockEnded } = store.tickTimers();
-  assert.equal(blockEnded[0]?.pauseMinutes, 10);
+  store.setStatus(a.user.id, "studeren", undefined, 50);
+  a.user.studyUntil = Date.now() - 1;
+  const ended = store.tickStudyTimers();
+  assert.ok((ended[0]?.pauseUntil || 0) > Date.now() + 9 * 60 * 1000);
 });
 
 test("hostronde zet iedereen 50 min stil", () => {
   const store = createStore(createWorld());
   const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
-  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset", preset: 2 } }));
+  const b = store.join(
+    guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset", preset: 2 } })
+  );
   if (!("user" in a) || !("user" in b)) throw new Error("expected users");
   store.connect(a.user.id, "s1");
   store.connect(b.user.id, "s2");
@@ -292,17 +274,17 @@ test("hostronde zet iedereen 50 min stil", () => {
   assert.equal(store.get(a.user.id)?.status, "studeren");
   assert.equal(store.get(b.user.id)?.status, "studeren");
   assert.equal(store.get(b.user.id)?.statusText, "pauze tot 11u");
-  assert.equal(store.get(a.user.id)?.blockMinutes, 50);
+  assert.ok((store.get(a.user.id)?.studyUntil || 0) > Date.now() + 49 * 60 * 1000);
 });
 
 test("WASD tijdens een blok schakelt naar pauze", () => {
   const store = createStore(createWorld());
   const a = store.join(guest({ deskId: 14 }));
   if (!("user" in a)) throw new Error("expected user");
-  store.startBlock(a.user.id, 50);
+  store.setStatus(a.user.id, "studeren", undefined, 50);
   const pub = store.stand(a.user.id);
   assert.equal(pub?.status, "pauze");
-  assert.equal(pub?.blockUntil, 0);
+  assert.equal(pub?.studyUntil, 0);
   assert.ok((pub?.pauseUntil || 0) > Date.now());
 });
 
@@ -338,4 +320,97 @@ test("reconnect binnen grace is geen nieuwe join-aankondiging", () => {
   store.finishDisconnect(a.user.id);
   const third = store.connect(a.user.id, "s3");
   assert.equal(third?.announceJoin, true);
+});
+
+test("wereld heeft koffiehoek, praatcirkels en tafelzitjes", () => {
+  const world = createWorld();
+  assert.ok(world.zones.some((z) => z.id === "coffee"));
+  assert.ok(world.talkCircles.length >= 8);
+  assert.equal(world.talkCircles[0].max, 4);
+  assert.ok(world.speedTables[0].seatAx);
+  assert.ok(inZone(world, 120, 220, "coffee"));
+  assert.equal(inZone(world, 120, 220, "study"), false);
+});
+
+test("studeermodus blokkeert chat en shout", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 5 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  const speak = store.addChat(a.user, "psst", "speak");
+  const shout = store.addChat(a.user, "hallo tent", "shout");
+  assert.ok("error" in speak);
+  assert.ok("error" in shout);
+  store.setStatus(a.user.id, "kennismaken", "");
+  a.user.x = 120;
+  a.user.y = 220;
+  const ok = store.addChat(a.user, "koffie?", "speak");
+  assert.ok("msg" in ok);
+  if ("msg" in ok) assert.equal(ok.msg.scope, "coffee");
+});
+
+test("bloktimer zet je na afloop op pauze", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 8 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  store.setStatus(a.user.id, "studeren", "", 25);
+  assert.ok((a.user.studyUntil || 0) > Date.now());
+  a.user.studyUntil = Date.now() - 10;
+  const ended = store.tickStudyTimers();
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].status, "pauze");
+});
+
+test("lounge-praatcirkel deelt chat zonder matching", () => {
+  const store = createStore(createWorld());
+  const world = store.world;
+  const circle = world.talkCircles[0];
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } }));
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.setStatus(a.user.id, "kennismaken", "");
+  store.setStatus(b.user.id, "kennismaken", "");
+  store.stand(a.user.id);
+  store.stand(b.user.id);
+  a.user.x = circle.x;
+  a.user.y = circle.y;
+  b.user.x = circle.x + 20;
+  b.user.y = circle.y;
+  const changed = store.assignTalkCircles();
+  assert.ok(changed.length >= 2);
+  assert.equal(a.user.talkCircleId, circle.id);
+  assert.equal(b.user.talkCircleId, circle.id);
+  const chat = store.addChat(a.user, "hey", "speak");
+  assert.ok("msg" in chat && chat.msg.scope === "circle");
+  if ("ids" in chat) {
+    assert.ok(chat.ids.includes(a.user.id));
+    assert.ok(chat.ids.includes(b.user.id));
+  }
+});
+
+test("speeddate zet jullie aan een tafel in de tent", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } }));
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.setStatus(a.user.id, "kennismaken", "");
+  store.setStatus(b.user.id, "kennismaken", "");
+  store.joinQueue(a.user.id);
+  store.joinQueue(b.user.id);
+  const { started } = store.matchDates();
+  assert.equal(started.length, 1);
+  assert.ok(started[0].tableId);
+  assert.equal(a.user.dateTableId, started[0].tableId);
+  assert.equal(b.user.dateTableId, started[0].tableId);
+  const table = store.world.speedTables.find((t) => t.id === started[0].tableId);
+  assert.ok(table);
+  assert.equal(a.user.x, table?.seatAx);
+  assert.equal(b.user.x, table?.seatBx);
+  const chat = store.addChat(a.user, "hoi", "speak");
+  assert.ok("msg" in chat && chat.msg.scope === "date");
 });

@@ -282,23 +282,22 @@ io.on("connection", (socket) => {
   });
 
   socket.on("status", (data) => {
-    const pub = store.setStatus(userId, data?.status, data?.statusText);
+    const dated = store.getDate(userId);
+    const pub = store.setStatus(userId, data?.status, data?.statusText, data?.studyMinutes);
     if (pub) io.to("tent").emit("player:update", pub);
-  });
-
-  socket.on("block", (data) => {
-    const result = store.startBlock(userId, data?.minutes);
-    if ("error" in result) {
-      socket.emit("notice", { type: "error", text: result.error });
-      return;
+    if (dated && !store.getDate(userId)) {
+      const other = dated.a === userId ? dated.b : dated.a;
+      emitToSocket(userId, (id) => io.to(id).emit("speeddate:ended", { reason: "leave" }));
+      emitToSocket(other, (id) => io.to(id).emit("speeddate:ended", { reason: "leave" }));
+      const partner = store.get(other);
+      if (partner) io.to("tent").emit("player:update", store.publicUser(partner));
     }
-    io.to("tent").emit("player:update", result.user);
   });
 
   socket.on("typing", (data) => {
     const payload = store.setTyping(userId, Boolean(data?.typing), String(data?.draft || ""));
     if (payload) {
-      for (const id of store.nearbyIds(userId)) {
+      for (const id of store.chatAudience(userId).ids) {
         emitToSocket(id, (sid) => io.to(sid).emit("player:typing", payload));
       }
     }
@@ -309,12 +308,12 @@ io.on("connection", (socket) => {
     if ("error" in parsed) return;
     const me = store.get(userId);
     if (!me) return;
-    const result = store.addChat(me, parsed.text, "near");
+    const result = store.addChat(me, parsed.text, "speak");
     if ("error" in result) {
       if (result.error !== "silent") socket.emit("notice", { type: "error", text: result.error });
       return;
     }
-    for (const id of store.nearbyIds(userId)) {
+    for (const id of result.ids) {
       emitToSocket(id, (sid) => {
         io.to(sid).emit("chat", result.msg);
         io.to(sid).emit("player:update", store.publicUser(me));
@@ -327,12 +326,14 @@ io.on("connection", (socket) => {
     if ("error" in parsed) return;
     const me = store.get(userId);
     if (!me) return;
-    const result = store.addChat(me, parsed.text, "tent");
+    const result = store.addChat(me, parsed.text, "shout");
     if ("error" in result) {
       socket.emit("notice", { type: "error", text: result.error });
       return;
     }
-    io.to("tent").emit("chat", result.msg);
+    for (const id of result.ids) {
+      emitToSocket(id, (sid) => io.to(sid).emit("chat", result.msg));
+    }
   });
 
   socket.on("dm:open", (otherId) => {
@@ -361,8 +362,17 @@ io.on("connection", (socket) => {
   });
 
   socket.on("speeddate:leave", () => {
-    store.leaveQueue(userId);
+    const ended = store.leaveSpeeddate(userId);
     socket.emit("speeddate:queued", { queued: false, position: 0 });
+    if (ended) {
+      const other = ended.a === userId ? ended.b : ended.a;
+      emitToSocket(userId, (id) => io.to(id).emit("speeddate:ended", { reason: ended.reason || "leave" }));
+      emitToSocket(other, (id) => io.to(id).emit("speeddate:ended", { reason: ended.reason || "leave" }));
+      const me = store.get(userId);
+      const partner = store.get(other);
+      if (me) io.to("tent").emit("player:update", store.publicUser(me));
+      if (partner) io.to("tent").emit("player:update", store.publicUser(partner));
+    }
   });
 
   socket.on("disconnect", () => {
@@ -387,37 +397,56 @@ setInterval(() => {
 setInterval(() => {
   const expired = store.expireBubbles();
   for (const id of expired) io.to("tent").emit("player:bubble-end", { id });
-  const timers = store.tickTimers();
-  for (const pub of timers.pauseEnded) {
+  for (const pub of store.tickPauses()) {
     io.to("tent").emit("player:update", pub);
     emitToSocket(pub.id, (sid) =>
       io.to(sid).emit("notice", { type: "pause-end", text: "Pauze voorbij — terug aan de blok." })
     );
   }
-  for (const ended of timers.blockEnded) {
-    io.to("tent").emit("player:update", ended.user);
-    emitToSocket(ended.user.id, (sid) =>
+  for (const pub of store.tickStudyTimers()) {
+    io.to("tent").emit("player:update", pub);
+    const pauseMin = Math.round(((pub.pauseUntil || 0) - Date.now()) / 60000);
+    emitToSocket(pub.id, (sid) =>
       io.to(sid).emit("notice", {
-        type: "block-end",
-        text: `Blok voorbij — ${ended.pauseMinutes} min pauze.`,
+        type: "study-end",
+        text: `Blok voorbij — ${pauseMin <= 6 ? 5 : 10} min pauze.`,
       })
     );
+  }
+  for (const pub of store.assignTalkCircles()) {
+    io.to("tent").emit("player:update", pub);
   }
   const { started, ended, waiting } = store.matchDates();
   for (const date of started) {
     const a = store.get(date.a);
     const b = store.get(date.b);
     if (!a || !b) continue;
-    if (a.socketId) {
-      io.to(a.socketId).emit("speeddate:matched", { partner: store.publicUser(b), endsAt: date.endsAt, ice: date.ice, waiting });
-    }
-    if (b.socketId) {
-      io.to(b.socketId).emit("speeddate:matched", { partner: store.publicUser(a), endsAt: date.endsAt, ice: date.ice, waiting });
-    }
+    io.to("tent").emit("player:update", store.publicUser(a));
+    io.to("tent").emit("player:update", store.publicUser(b));
+    const payloadA = {
+      partner: store.publicUser(b),
+      endsAt: date.endsAt,
+      ice: date.ice,
+      waiting,
+      tableId: date.tableId,
+      tableLabel: date.tableLabel,
+    };
+    const payloadB = {
+      partner: store.publicUser(a),
+      endsAt: date.endsAt,
+      ice: date.ice,
+      waiting,
+      tableId: date.tableId,
+      tableLabel: date.tableLabel,
+    };
+    if (a.socketId) io.to(a.socketId).emit("speeddate:matched", payloadA);
+    if (b.socketId) io.to(b.socketId).emit("speeddate:matched", payloadB);
   }
   for (const date of ended) {
     const a = store.get(date.a);
     const b = store.get(date.b);
+    if (a) io.to("tent").emit("player:update", store.publicUser(a));
+    if (b) io.to("tent").emit("player:update", store.publicUser(b));
     if (a?.socketId) io.to(a.socketId).emit("speeddate:ended", { reason: date.reason || "time" });
     if (b?.socketId) io.to(b.socketId).emit("speeddate:ended", { reason: date.reason || "time" });
   }
