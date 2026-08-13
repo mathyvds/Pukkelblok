@@ -35,6 +35,8 @@ npm run build
 COOKIE_SECRET=kies-iets-geheims HOST_PIN=kies-een-code npm start
 ```
 
+`COOKIE_SECRET` is verplicht in productie (geen dev-default). `HOST_PIN` beschermt `/host`. Cookies zijn `Secure` zodra `NODE_ENV=production`.
+
 Host-dashboard: http://localhost:3000/host
 
 ## Wat zit erin

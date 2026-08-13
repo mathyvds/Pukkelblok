@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateNames, parseAvatar, validateChat, shirtColor } from "../src/shared/validate";
+import { validateNames, parseAvatar, validateChat, shirtColor, sniffImageMime } from "../src/shared/validate";
 import { createWorld, clampMove, deskById, inZone, PLAYER_R } from "../src/shared/world";
 import { createStore } from "../src/server/store";
+import { cookieSecure, createRateLimit, requireCookieSecret, timingSafeEqualString } from "../src/server/security";
 import { DESK_COUNT, joinSchema } from "../src/shared/protocol";
 
 test("namen: Nederlandse letters en koppeltekens", () => {
@@ -358,4 +359,88 @@ test("speeddate zet jullie aan een tafel in de tent", () => {
   assert.equal(b.user.x, table?.seatBx);
   const chat = store.addChat(a.user, "hoi", "speak");
   assert.ok("msg" in chat && chat.msg.scope === "date");
+});
+
+test("publicUser lekt geen type-draft", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 1 }));
+  if (!("user" in a)) throw new Error("expected user");
+  a.user.draft = "geheim bericht dat ik nog niet verstuur";
+  const pub = store.publicUser(a.user);
+  assert.equal("draft" in pub, false);
+  const typing = store.setTyping(a.user.id, true);
+  assert.equal(typing?.typing, true);
+  assert.equal("draft" in (typing || {}), false);
+  assert.equal(a.user.draft, "");
+});
+
+test("chatgeschiedenis bij reconnect bevat geen proximity-berichten", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } }));
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.setStatus(a.user.id, "kennismaken", "");
+  const near = store.addChat(a.user, "alleen voor wie naast me zit", "speak");
+  const tent = store.addChat(a.user, "hele tent hoort dit", "shout");
+  assert.ok("msg" in near);
+  assert.ok("msg" in tent);
+  const history = store.chatHistoryFor(b.user.id);
+  assert.equal(history.some((m) => m.text.includes("naast me")), false);
+  assert.equal(history.some((m) => m.text.includes("hele tent")), true);
+});
+
+test("logout wist privéberichten uit het geheugen", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } }));
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  const sent = store.addDm(a.user, b.user.id, "niet bewaren na logout");
+  assert.ok("msg" in sent);
+  assert.equal(store.getDms(a.user.id, b.user.id).length, 1);
+  store.logout(a.user.sid);
+  assert.equal(store.getDms(a.user.id, b.user.id).length, 0);
+});
+
+test("kick blokkeert dezelfde naam en leeftijd", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.kick(a.user.id);
+  const again = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 3 }));
+  assert.ok("error" in again);
+});
+
+test("avatar weigert HTML die zich als jpeg voordoet", () => {
+  const fake = `data:image/jpeg;base64,${Buffer.from("<html>xss</html>").toString("base64")}`;
+  assert.ok("error" in parseAvatar({ dataUrl: fake }));
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+  assert.equal(sniffImageMime(jpeg), "image/jpeg");
+  const ok = parseAvatar({ dataUrl: `data:image/jpeg;base64,${jpeg.toString("base64")}` });
+  assert.equal("kind" in ok && ok.kind, "photo");
+});
+
+test("COOKIE_SECRET is verplicht in productie", () => {
+  assert.equal(requireCookieSecret(false, undefined), "blokbar-dev-secret-change-me");
+  assert.throws(() => requireCookieSecret(true, undefined));
+  assert.throws(() => requireCookieSecret(true, "blokbar-dev-secret-change-me"));
+  assert.equal(requireCookieSecret(true, "festival-geheim"), "festival-geheim");
+});
+
+test("cookies zijn Secure in productie tenzij uitgezet", () => {
+  assert.equal(cookieSecure(true, undefined), true);
+  assert.equal(cookieSecure(true, "false"), false);
+  assert.equal(cookieSecure(false, undefined), false);
+  assert.equal(cookieSecure(false, "true"), true);
+});
+
+test("host-pin vergelijking is constant-time en rate-limit sluit af", () => {
+  assert.equal(timingSafeEqualString("1234", "1234"), true);
+  assert.equal(timingSafeEqualString("1234", "1235"), false);
+  assert.equal(timingSafeEqualString("12", "1234"), false);
+  const limit = createRateLimit(60_000, 2);
+  assert.equal(limit.allow("ip"), true);
+  assert.equal(limit.allow("ip"), true);
+  assert.equal(limit.allow("ip"), false);
 });

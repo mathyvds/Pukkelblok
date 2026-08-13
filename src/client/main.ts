@@ -98,7 +98,12 @@ function statusLabel(p: PublicPlayer) {
 }
 
 function esc(text: string) {
-  return String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 for (let i = 1; i <= 8; i++) {
@@ -579,7 +584,7 @@ $("chat-form").addEventListener("submit", (e) => {
   if (!text) return;
   state.socket?.emit("chat", text);
   ui.chatIn.value = "";
-  state.socket?.emit("typing", { typing: false, draft: "" });
+  state.socket?.emit("typing", { typing: false });
 });
 
 $("chat-shout").addEventListener("click", () => {
@@ -590,7 +595,7 @@ $("chat-shout").addEventListener("click", () => {
   }
   state.socket?.emit("shout", text);
   ui.chatIn.value = "";
-  state.socket?.emit("typing", { typing: false, draft: "" });
+  state.socket?.emit("typing", { typing: false });
 });
 
 ui.chatIn.addEventListener("input", () => {
@@ -599,11 +604,10 @@ ui.chatIn.addEventListener("input", () => {
   if (now - state.lastTyping < 120) return;
   state.lastTyping = now;
   const typing = ui.chatIn.value.trim().length > 0;
-  state.socket?.emit("typing", { typing, draft: ui.chatIn.value });
+  state.socket?.emit("typing", { typing });
   const me = state.players.get(state.me?.id || "");
   if (me) {
     me.typing = typing;
-    me.draft = typing ? ui.chatIn.value : "";
     world.upsert(me);
   }
 });

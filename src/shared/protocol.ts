@@ -45,7 +45,6 @@ export type PublicPlayer = {
   statusText: string;
   pauseUntil: number;
   typing: boolean;
-  draft: string;
   bubble: string;
   inDate: boolean;
   talkCircleId: string | null;
@@ -174,7 +173,7 @@ export type ClientToServerEvents = {
   "sit:spot": (spotId: string) => void;
   stand: () => void;
   status: (data: { status: Status; statusText?: string; studyMinutes?: number }) => void;
-  typing: (data: { typing: boolean; draft: string }) => void;
+  typing: (data: { typing: boolean }) => void;
   chat: (text: string) => void;
   shout: (text: string) => void;
   "dm:open": (otherId: string) => void;
@@ -191,7 +190,7 @@ export type ServerToClientEvents = {
   "player:update": (player: PublicPlayer) => void;
   "player:correct": (player: PublicPlayer) => void;
   "players:moves": (moves: PlayerMove[]) => void;
-  "player:typing": (payload: { id: string; typing: boolean; draft: string; x?: number; y?: number }) => void;
+  "player:typing": (payload: { id: string; typing: boolean; x?: number; y?: number }) => void;
   "player:bubble-end": (payload: { id: string }) => void;
   chat: (msg: ChatMessage) => void;
   dm: (msg: DirectMessage) => void;

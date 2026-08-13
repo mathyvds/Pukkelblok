@@ -584,8 +584,8 @@ function syncDom() {
     const bubble = el.querySelector(".bubble")!;
     const self = me();
     const hideTalk = silent || self?.status === "studeren";
-    if (!hideTalk && p.typing && p.draft) {
-      bubble.textContent = p.draft;
+    if (!hideTalk && p.typing) {
+      bubble.textContent = "…";
       bubble.className = "bubble on typing";
     } else if (!hideTalk && p.bubble) {
       bubble.textContent = p.bubble;
