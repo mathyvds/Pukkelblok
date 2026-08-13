@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateNames, parseAvatar, validateChat, validateStudy, shirtColor } from "../server/validate.js";
-import { createWorld, clampMove, PLAYER_R, DATE_WAIT_FALLBACK_MS } from "../server/world.js";
+import { validateNames, parseAvatar, validateChat, validateStudy, validateDeskId, shirtColor } from "../server/validate.js";
+import { createWorld, clampMove, deskById, PLAYER_R, DATE_WAIT_FALLBACK_MS, DESK_COUNT } from "../server/world.js";
 import { createStore } from "../server/store.js";
 
 const avatar = { kind: "preset", preset: 1 };
@@ -48,6 +48,17 @@ test("wereld: botsing houdt je uit de muur", () => {
   const world = createWorld();
   const next = clampMove(world, 200, 200, -40, 200);
   assert.ok(next.x >= PLAYER_R);
+});
+
+test("wereld heeft 100 bureaus", () => {
+  const world = createWorld();
+  assert.equal(world.desks.length, DESK_COUNT);
+  assert.equal(DESK_COUNT, 100);
+  assert.ok(deskById(world, 1));
+  assert.ok(deskById(world, 100));
+  assert.equal(deskById(world, 101), null);
+  assert.equal(validateDeskId(100).deskId, 100);
+  assert.ok(validateDeskId(101).error);
 });
 
 test("store: gastaccount zonder e-mail, max 100", () => {
@@ -140,6 +151,14 @@ test("host kan iemand kicken", () => {
   assert.equal(kicked.name, "Adam Aerts");
   assert.equal(store.get(a.id), null);
   assert.ok(store.get(b.id));
+});
+
+test("zitten aan bureau 100", () => {
+  const store = createStore(createWorld());
+  const { a } = twoUsers(store);
+  const result = store.sit(a.id, 100);
+  assert.equal(result.user.sittingDeskId, 100);
+  assert.ok(validateDeskId(0).error);
 });
 
 test("chat: tweede bericht te snel wordt genegeerd", () => {

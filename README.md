@@ -10,8 +10,8 @@ Geen e-mail, geen university-login, geen gamerooms. Wel: gastaccount met cookie,
 - Optioneel **vakgebied** (voor speeddate-matching)
 - Avatar: foto nemen, uploaden, of een look kiezen (geen pinguïns)
 - Eén tent, tot **100** studenten tegelijk
-- Bewegen met WASD / pijltjes / klikken / touch · **E** = dichtstbijzijnde bureau
-- Bureaus 1–24: klik, of kies het nummer van je echte plek in de balk
+- Bewegen met WASD / pijltjes / klikken / touch
+- Bureaus **1–100**: tik het nummer van je echte plek in de balk, of druk **E** voor het dichtstbijzijnde vrije bureau
 - **Proximity-chat**: wie dichtbij staat hoort je; 📣 roept naar de hele tent (1×/min)
 - Spraakwolk boven de avatar bij typen en nabije chat — **niet** bij privéberichten
 - Privéberichten (kennismaken / speeddate)
@@ -44,7 +44,7 @@ Railway, Render of Fly.io: root = deze repo, startcommando `npm start`, poort ui
 
 **Wifi in de tent.** WebSockets moeten open blijven. Als festival-wifi clients isoleert, host lokaal op een access point in de Club-tent.
 
-**Fysieke bureaus = virtuele bureaus.** Zet nummers 1–24 op de echte tafels. Studenten kiezen dat nummer in de balk en zitten “naast” wie ook fysiek naast hen zit.
+**Fysieke bureaus = virtuele bureaus.** Zet nummers 1–100 op de echte tafels. Studenten tikken dat nummer in de balk en zitten “naast” wie ook fysiek naast hen zit.
 
 **Host-laptop.** Open `/host` op een vast scherm aan de infostand. Kick bij misbruik, omroep als de speeddate-ronde begint.
 

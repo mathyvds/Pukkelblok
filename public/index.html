@@ -29,7 +29,7 @@
         <button class="btn-primary" id="btn-enter">Kom de tent in</button>
       </div>
       <ul class="hero-points">
-        <li>Tot 100 studenten tegelijk</li>
+        <li>Tot 100 studenten, 100 bureaus</li>
         <li>Loop rond, zit aan een bureau</li>
         <li>Chat + privéberichten</li>
         <li>Speeddate-hoek</li>
@@ -93,9 +93,7 @@
         <option value="pauze">Pauze (10 min)</option>
       </select>
       <label class="desk-pick">Bureau
-        <select id="desk-select" title="Ga naar je echte bureau">
-          <option value="">Kies…</option>
-        </select>
+        <input id="desk-select" type="number" min="1" max="100" inputmode="numeric" placeholder="1–100" title="Nummer van je echte bureau"/>
       </label>
       <button class="btn-hud" id="btn-speeddate">Speeddate</button>
       <button class="btn-hud" id="btn-logout">Uitloggen</button>

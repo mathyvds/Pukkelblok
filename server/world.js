@@ -1,5 +1,8 @@
-export const WORLD_W = 2400;
-export const WORLD_H = 1680;
+export const DESK_COUNT = 100;
+export const DESK_COLS = 10;
+export const DESK_ROWS = 10;
+export const WORLD_W = 3200;
+export const WORLD_H = 2480;
 export const PLAYER_R = 28;
 export const MAX_SPEED = 420;
 export const PROXIMITY = 420;
@@ -33,9 +36,9 @@ function desk(id, x, y) {
 function makeDesks() {
   const desks = [];
   let id = 1;
-  for (let row = 0; row < 4; row++) {
-    for (let col = 0; col < 6; col++) {
-      desks.push(desk(id, 360 + col * 270, 430 + row * 210));
+  for (let row = 0; row < DESK_ROWS; row++) {
+    for (let col = 0; col < DESK_COLS; col++) {
+      desks.push(desk(id, 360 + col * 196, 360 + row * 170));
       id += 1;
     }
   }
@@ -47,8 +50,8 @@ function makeSpeedTables() {
   for (let i = 0; i < 6; i++) {
     tables.push({
       id: `sd-${i + 1}`,
-      x: 2050,
-      y: 380 + i * 175,
+      x: WORLD_W - 420,
+      y: 400 + i * 220,
       w: 220,
       h: 90,
       label: `Tafel ${i + 1}`,
@@ -60,14 +63,20 @@ function makeSpeedTables() {
 export function createWorld() {
   const desks = makeDesks();
   const speedTables = makeSpeedTables();
+  const zones = [
+    { id: "bar", name: "Koffiebar", x: 80, y: 90, w: 720, h: 150 },
+    { id: "stage", name: "Club-podium", x: 840, y: 90, w: 1540, h: 130 },
+    { id: "info", name: "Info", x: WORLD_W - 780, y: 90, w: 700, h: 150 },
+    { id: "study", name: "Blokzone", x: 330, y: 340, w: 2100, h: 1850 },
+    { id: "speeddate", name: "Speeddate", x: WORLD_W - 460, y: 340, w: 400, h: 1900 },
+    { id: "lounge", name: "Lounge", x: 50, y: 340, w: 270, h: 1900 },
+  ];
   const solids = [
     { x: 0, y: 0, w: WORLD_W, h: 70, wall: true },
     { x: 0, y: WORLD_H - 40, w: WORLD_W, h: 40, wall: true },
     { x: 0, y: 0, w: 40, h: WORLD_H, wall: true },
     { x: WORLD_W - 40, y: 0, w: 40, h: WORLD_H, wall: true },
-    { x: 80, y: 90, w: 620, h: 150 },
-    { x: 760, y: 90, w: 880, h: 120 },
-    { x: 1700, y: 90, w: 620, h: 150 },
+    ...zones.filter((z) => z.id === "bar" || z.id === "stage" || z.id === "info"),
     ...desks.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h })),
     ...speedTables.map((t) => ({ x: t.x, y: t.y, w: t.w, h: t.h })),
   ];
@@ -75,18 +84,11 @@ export function createWorld() {
   return {
     width: WORLD_W,
     height: WORLD_H,
-    spawn: { x: 1200, y: 1520 },
+    spawn: { x: WORLD_W / 2, y: WORLD_H - 160 },
     desks,
     speedTables,
     solids,
-    zones: [
-      { id: "bar", name: "Koffiebar", x: 80, y: 90, w: 620, h: 150 },
-      { id: "stage", name: "Club-podium", x: 760, y: 90, w: 880, h: 120 },
-      { id: "info", name: "Info", x: 1700, y: 90, w: 620, h: 150 },
-      { id: "study", name: "Blokzone", x: 320, y: 380, w: 1680, h: 900 },
-      { id: "speeddate", name: "Speeddate", x: 2000, y: 320, w: 340, h: 1120 },
-      { id: "lounge", name: "Lounge", x: 60, y: 320, w: 250, h: 1100 },
-    ],
+    zones,
   };
 }
 
@@ -137,6 +139,7 @@ export function publicWorld(world) {
     height: world.height,
     spawn: world.spawn,
     desks: world.desks,
+    deskCount: world.desks.length,
     speedTables: world.speedTables,
     zones: world.zones,
     proximity: PROXIMITY,

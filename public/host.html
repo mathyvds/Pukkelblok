@@ -10,13 +10,13 @@
   <link rel="stylesheet" href="/styles.css"/>
   <style>
     body{overflow:auto;background:#110e14}
-    .host{max-width:920px;margin:0 auto;padding:1.4rem 1rem 3rem}
+    .host{max-width:1100px;margin:0 auto;padding:1.4rem 1rem 3rem}
     .host h1{font-family:var(--display);font-size:3rem;letter-spacing:.04em}
     .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:1rem 0}
     .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.8rem;text-align:center}
     .stat b{display:block;font-size:1.4rem;color:var(--yellow)}
-    .desk-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:1rem 0}
-    .desk{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:.5rem;font-size:.75rem;text-align:center}
+    .desk-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;margin:1rem 0}
+    .desk{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.4rem .2rem;font-size:.68rem;text-align:center}
     .desk.taken{border-color:var(--pink);background:rgba(233,30,140,.12)}
     table{width:100%;border-collapse:collapse;font-size:.85rem}
     th,td{text-align:left;padding:.45rem .4rem;border-bottom:1px solid var(--line)}
@@ -26,7 +26,8 @@
     .pin-card{width:min(380px,92vw);margin:18vh auto;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:1.4rem}
     .warn{color:#ffb4b4;font-size:.85rem;min-height:1.2rem}
     @media (max-width:700px){
-      .stats,.desk-grid{grid-template-columns:repeat(2,1fr)}
+      .stats{grid-template-columns:repeat(2,1fr)}
+      .desk-grid{grid-template-columns:repeat(5,1fr)}
     }
   </style>
 </head>
@@ -58,7 +59,7 @@
       <input id="announce-in" maxlength="200" placeholder="Omroep naar de hele tent…"/>
       <button class="btn-primary" type="submit">Omroep</button>
     </form>
-    <h2>Bureaus 1–24</h2>
+    <h2>Bureaus 1–100</h2>
     <div class="desk-grid" id="desks"></div>
     <h2>Aanwezig</h2>
     <table>

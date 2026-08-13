@@ -90,10 +90,9 @@
     ui.study.innerHTML = `<option value="">Liever niet zeggen</option>` + studies.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
   }
 
-  function fillDesks() {
-    ui.deskSelect.innerHTML =
-      `<option value="">Kies…</option>` +
-      Array.from({ length: 24 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join("");
+  function fillDesks(count = 100) {
+    ui.deskSelect.max = String(count);
+    ui.deskSelect.placeholder = `1–${count}`;
   }
 
   fillStudies();
@@ -102,6 +101,7 @@
     .then((r) => r.json())
     .then((w) => {
       if (w.studies) fillStudies(w.studies);
+      if (w.desks?.length) fillDesks(w.desks.length);
     })
     .catch(() => {});
 
@@ -283,6 +283,7 @@
       payload.chat.forEach(addChatLine);
       renderOnline();
       if (payload.studies) fillStudies(payload.studies);
+      if (payload.world?.desks?.length) fillDesks(payload.world.desks.length);
       syncPauseClock(payload.you);
       notify(`Welkom in de Blokbar, ${payload.you.firstName}.`);
     });
@@ -551,6 +552,12 @@
       return;
     }
     ui.deskHint.textContent = `Je zit aan bureau ${id}`;
+  });
+  ui.deskSelect.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      ui.deskSelect.dispatchEvent(new Event("change"));
+    }
   });
 
   $("btn-speeddate").addEventListener("click", () => $("modal-date").classList.add("open"));

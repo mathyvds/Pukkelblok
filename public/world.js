@@ -394,60 +394,77 @@
     ctx.closePath();
     ctx.fill();
 
-    roundRect(ctx, 90, 100, 600, 130, 16, "#3b241c");
-    ctx.fillStyle = "#F5C518";
-    ctx.font = "800 28px Outfit, sans-serif";
-    ctx.fillText("Koffie & fris", 120, 150);
-    ctx.fillStyle = "#fff6e0";
-    ctx.font = "500 16px Outfit, sans-serif";
-    ctx.fillText("Even rechtstaan? Haal een kop en kom praten.", 120, 180);
-    ctx.fillStyle = "#6b3a28";
-    for (let i = 0; i < 5; i++) roundRect(ctx, 140 + i * 90, 188, 54, 28, 6, "#6b3a28");
+    const zone = (id) => w.zones.find((z) => z.id === id);
+    const bar = zone("bar");
+    const stage = zone("stage");
+    const info = zone("info");
+    const lounge = zone("lounge");
+    const speed = zone("speeddate");
 
-    roundRect(ctx, 760, 88, 880, 140, 18, "#201018");
-    ctx.fillStyle = "#E91E8C";
-    ctx.font = "800 42px Bebas Neue, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("PUKKELBLOK  ·  CLUB-TENT", 1200, 150);
-    ctx.fillStyle = "#F5C518";
-    ctx.font = "600 18px Outfit, sans-serif";
-    ctx.fillText("Blokken aan je bureau. Kennismaken in de tent.", 1200, 186);
-    ctx.textAlign = "left";
+    if (bar) {
+      roundRect(ctx, bar.x + 10, bar.y + 10, bar.w - 20, bar.h - 20, 16, "#3b241c");
+      ctx.fillStyle = "#F5C518";
+      ctx.font = "800 28px Outfit, sans-serif";
+      ctx.fillText("Koffie & fris", bar.x + 40, bar.y + 58);
+      ctx.fillStyle = "#fff6e0";
+      ctx.font = "500 16px Outfit, sans-serif";
+      ctx.fillText("Even rechtstaan? Haal een kop en kom praten.", bar.x + 40, bar.y + 88);
+      for (let i = 0; i < 5; i++) roundRect(ctx, bar.x + 60 + i * 90, bar.y + 100, 54, 28, 6, "#6b3a28");
+    }
 
-    roundRect(ctx, 1710, 100, 600, 130, 16, "#3b241c");
-    ctx.fillStyle = "#fff6e0";
-    ctx.font = "800 22px Outfit, sans-serif";
-    ctx.fillText("Speeddate vanaf 16:30", 1740, 148);
-    ctx.font = "500 15px Outfit, sans-serif";
-    ctx.fillStyle = "rgba(255,246,224,.8)";
-    ctx.fillText("Klik Speeddate in de balk. 3 minuten, één ijsbreker.", 1740, 178);
+    if (stage) {
+      roundRect(ctx, stage.x, stage.y, stage.w, stage.h, 18, "#201018");
+      ctx.fillStyle = "#E91E8C";
+      ctx.font = "800 42px Bebas Neue, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("PUKKELBLOK  ·  CLUB-TENT", stage.x + stage.w / 2, stage.y + 58);
+      ctx.fillStyle = "#F5C518";
+      ctx.font = "600 18px Outfit, sans-serif";
+      ctx.fillText("100 bureaus. Blokken. Kennismaken in de tent.", stage.x + stage.w / 2, stage.y + 96);
+      ctx.textAlign = "left";
+    }
 
-    roundRect(ctx, 70, 360, 230, 1080, 20, "#241610");
-    ctx.fillStyle = "#F5C518";
-    ctx.font = "800 20px Outfit, sans-serif";
-    ctx.fillText("Lounge", 92, 400);
-    ctx.fillStyle = "#8d3a4a";
-    for (let i = 0; i < 6; i++) {
-      ctx.beginPath();
-      ctx.ellipse(180, 480 + i * 150, 70, 36, 0, 0, Math.PI * 2);
-      ctx.fill();
+    if (info) {
+      roundRect(ctx, info.x + 10, info.y + 10, info.w - 20, info.h - 20, 16, "#3b241c");
+      ctx.fillStyle = "#fff6e0";
+      ctx.font = "800 22px Outfit, sans-serif";
+      ctx.fillText("Speeddate vanaf 16:30", info.x + 40, info.y + 58);
+      ctx.font = "500 15px Outfit, sans-serif";
+      ctx.fillStyle = "rgba(255,246,224,.8)";
+      ctx.fillText("Klik Speeddate in de balk. 3 minuten, één ijsbreker.", info.x + 40, info.y + 88);
+    }
+
+    if (lounge) {
+      roundRect(ctx, lounge.x, lounge.y, lounge.w, lounge.h, 20, "#241610");
+      ctx.fillStyle = "#F5C518";
+      ctx.font = "800 20px Outfit, sans-serif";
+      ctx.fillText("Lounge", lounge.x + 22, lounge.y + 40);
+      ctx.fillStyle = "#8d3a4a";
+      const couches = Math.max(6, Math.floor((lounge.h - 80) / 150));
+      for (let i = 0; i < couches; i++) {
+        ctx.beginPath();
+        ctx.ellipse(lounge.x + lounge.w / 2, lounge.y + 120 + i * 150, 70, 36, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     for (const d of w.desks) {
       roundRect(ctx, d.x, d.y, d.w, d.h, 10, "#6b4428");
-      roundRect(ctx, d.x + 10, d.y + 10, d.w - 20, 36, 6, "#1d2430");
+      roundRect(ctx, d.x + 10, d.y + 10, d.w - 20, 32, 6, "#1d2430");
       ctx.fillStyle = "#F5C518";
-      ctx.font = "800 16px Outfit, sans-serif";
-      ctx.fillText("Bureau " + d.label, d.x + 16, d.y + 70);
+      ctx.font = "800 15px Outfit, sans-serif";
+      ctx.fillText(d.label, d.x + 16, d.y + 66);
       ctx.fillStyle = "#4a3224";
       ctx.beginPath();
       ctx.ellipse(d.seatX, d.seatY + 6, 22, 10, 0, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    ctx.fillStyle = "#E91E8C";
-    ctx.font = "800 22px Outfit, sans-serif";
-    ctx.fillText("Speeddate-hoek", 2060, 350);
+    if (speed) {
+      ctx.fillStyle = "#E91E8C";
+      ctx.font = "800 22px Outfit, sans-serif";
+      ctx.fillText("Speeddate-hoek", speed.x + 20, speed.y + 28);
+    }
     for (const t of w.speedTables) {
       roundRect(ctx, t.x, t.y, t.w, t.h, 12, "#4a2030");
       ctx.fillStyle = "#fff6e0";

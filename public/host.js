@@ -16,7 +16,7 @@
 
   function render(state) {
     document.getElementById("s-online").textContent = `${state.online}/${state.max}`;
-    document.getElementById("s-desks").textContent = state.desks.filter((d) => d.taken).length + "/24";
+    document.getElementById("s-desks").textContent = state.desks.filter((d) => d.taken).length + "/" + state.desks.length;
     document.getElementById("s-wait").textContent = String(state.waiting);
     document.getElementById("s-dates").textContent = String(state.dates);
     document.getElementById("desks").innerHTML = state.desks

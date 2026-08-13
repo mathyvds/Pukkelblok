@@ -1,3 +1,5 @@
+import { DESK_COUNT } from "./world.js";
+
 const NAME_RE = /^[\p{L}]+(?:[ '\-][\p{L}]+)*$/u;
 
 export const MAX_ONLINE = 100;
@@ -53,8 +55,8 @@ export function validateStudy(value) {
 
 export function validateDeskId(id) {
   const deskId = Number(id);
-  if (!Number.isInteger(deskId) || deskId < 1 || deskId > 24) {
-    return { error: "Kies bureau 1 tot 24." };
+  if (!Number.isInteger(deskId) || deskId < 1 || deskId > DESK_COUNT) {
+    return { error: `Kies bureau 1 tot ${DESK_COUNT}.` };
   }
   return { deskId };
 }

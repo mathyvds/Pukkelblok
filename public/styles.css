@@ -110,10 +110,11 @@ kbd{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);borde
 .hud-sep{flex:1}
 .me-chip{display:flex;align-items:center;gap:8px;font-weight:700;font-size:.85rem}
 .me-chip img{width:28px;height:28px;border-radius:50%;object-fit:cover;border:2px solid var(--yellow)}
-#status-select,.desk-pick select{
+#status-select,.desk-pick input{
   background:#1d1824;color:#fff;border:1px solid var(--line);border-radius:10px;padding:.4rem .5rem;font-size:.78rem
 }
 .desk-pick{display:flex;align-items:center;gap:6px;font-size:.75rem;font-weight:700;color:var(--muted);white-space:nowrap}
+.desk-pick input{width:4.6rem}
 .pause-timer{
   background:rgba(245,197,24,.15);border:1px solid rgba(245,197,24,.4);color:var(--yellow);
   border-radius:999px;padding:.3rem .7rem;font-size:.78rem;font-weight:800
