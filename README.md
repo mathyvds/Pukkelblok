@@ -24,3 +24,7 @@ Firebase Authentication
 Firestore Database
 HTML Canvas for the 2D game world
 GitHub for version control
+
+Mockup
+
+Open `mockup/index.html` for a clickable concept of the landing page, study lounge, avatar customize, rooms, and game room. See `mockup/README.md`.
