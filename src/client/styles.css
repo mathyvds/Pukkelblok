@@ -728,7 +728,6 @@ kbd {
   max-width: min(520px, 86%);
   text-align: center;
 }
-}
 .empty {
   color: var(--color-muted);
   padding: 1.2rem;
