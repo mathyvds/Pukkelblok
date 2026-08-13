@@ -6,6 +6,7 @@ import type {
   ServerToClientEvents,
   Status,
 } from "../shared/protocol";
+import { DESK_COUNT } from "../shared/protocol";
 import * as world from "./world";
 import "./styles.css";
 
@@ -25,9 +26,16 @@ const screens: Record<Screen, HTMLElement> = {
 };
 
 const ui = {
-  first: $("first-name") as HTMLInputElement,
-  last: $("last-name") as HTMLInputElement,
-  preview: $("avatar-preview") as HTMLImageElement,
+    first: $("first-name") as HTMLInputElement,
+    last: $("last-name") as HTMLInputElement,
+    age: $("age") as HTMLInputElement,
+    school: $("school") as HTMLSelectElement,
+    schoolOther: $("school-other") as HTMLInputElement,
+    schoolOtherWrap: $("school-other-wrap"),
+    program: $("program") as HTMLInputElement,
+    deskId: $("desk-id") as HTMLInputElement,
+    deskGrid: $("desk-grid"),
+    preview: $("avatar-preview") as HTMLImageElement,
   error: $("join-error"),
   file: $("avatar-file") as HTMLInputElement,
   cam: $("cam") as HTMLVideoElement,
@@ -78,7 +86,7 @@ function fullName(p: PublicPlayer) {
 function statusLabel(p: PublicPlayer) {
   const map: Record<Status, string> = {
     kennismaken: "Klaar om kennis te maken",
-    blokken: "Aan het blokken",
+    studeren: "Aan het studeren",
     pauze: "Pauze",
   };
   const base = map[p.status] || "In de tent";
@@ -165,7 +173,40 @@ $("btn-snap").addEventListener("click", () => {
   stopCam();
 });
 
-$("btn-enter").addEventListener("click", () => show("join"));
+$("btn-enter").addEventListener("click", () => {
+  show("join");
+  void loadDesks();
+});
+$("school").addEventListener("change", () => {
+  const other = ui.school.value === "Andere";
+  ui.schoolOtherWrap.hidden = !other;
+  ui.schoolOther.required = other;
+});
+
+async function loadDesks() {
+  try {
+    const res = await fetch("/api/desks");
+    const data = (await res.json()) as { desks: { id: number; taken: boolean }[] };
+    const taken = new Set(data.desks.filter((d) => d.taken).map((d) => d.id));
+    ui.deskGrid.innerHTML = "";
+    for (let i = 1; i <= DESK_COUNT; i++) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = String(i);
+      btn.disabled = taken.has(i);
+      btn.title = taken.has(i) ? "Bezet" : `Bureau ${i}`;
+      btn.addEventListener("click", () => pickDesk(i));
+      ui.deskGrid.appendChild(btn);
+    }
+  } catch {
+    ui.error.textContent = "Kon de bureaus niet laden. Probeer opnieuw.";
+  }
+}
+
+function pickDesk(id: number) {
+  ui.deskId.value = String(id);
+  [...ui.deskGrid.children].forEach((b) => b.classList.toggle("sel", b.textContent === String(id)));
+}
 $("btn-back").addEventListener("click", () => {
   stopCam();
   show("landing");
@@ -173,19 +214,27 @@ $("btn-back").addEventListener("click", () => {
 
 $("join-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  ui.error.textContent = "";
   const btn = $("btn-join") as HTMLButtonElement;
+  if (!Number(ui.deskId.value)) {
+    ui.error.textContent = "Kies het nummer van je bureau in de tent.";
+    return;
+  }
+  ui.error.textContent = "";
   btn.disabled = true;
   try {
     const res = await fetch("/api/join", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({
-        firstName: ui.first.value,
-        lastName: ui.last.value,
-        avatar: state.avatar,
-      }),
+        body: JSON.stringify({
+          firstName: ui.first.value,
+          lastName: ui.last.value,
+          age: Number(ui.age.value),
+          school: ui.school.value === "Andere" ? ui.schoolOther.value : ui.school.value,
+          program: ui.program.value,
+          deskId: Number(ui.deskId.value),
+          avatar: state.avatar,
+        }),
     });
     const data = (await res.json()) as { user?: PublicPlayer; error?: string };
     if (!res.ok || !data.user) throw new Error(data.error || "Kon niet binnenkomen.");
@@ -214,7 +263,8 @@ function enterTent(user: PublicPlayer) {
   show("tent");
   $("me-name").textContent = user.firstName;
   ($("me-face") as HTMLImageElement).src = user.avatarUrl;
-  ($("status-select") as HTMLSelectElement).value = user.status || "kennismaken";
+  ($("status-select") as HTMLSelectElement).value = user.status || "studeren";
+  ui.deskHint.textContent = user.homeDeskId ? `Jouw bureau: ${user.homeDeskId}` : "";
   world.mount({
     canvas: $("world") as HTMLCanvasElement,
     viewport: $("viewport"),
@@ -228,7 +278,9 @@ function enterTent(user: PublicPlayer) {
       },
       onStand: () => {
         state.socket?.emit("stand");
-        ui.deskHint.textContent = "";
+        const select = $("status-select") as HTMLSelectElement;
+        if (select.value === "studeren") select.value = "pauze";
+        ui.deskHint.textContent = state.me?.homeDeskId ? `Jouw bureau: ${state.me.homeDeskId}` : "";
       },
       onClickPerson: openProfile,
     },
@@ -294,7 +346,9 @@ function connectSocket() {
     world.upsert(merged);
     if (p.id === state.me?.id) {
       state.me = merged;
-      if (merged.sittingDeskId) ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
+        if (merged.sittingDeskId) ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
+        else if (merged.homeDeskId) ui.deskHint.textContent = `Jouw bureau: ${merged.homeDeskId}`;
+        ($("status-select") as HTMLSelectElement).value = merged.status;
     }
     renderOnline();
   });
@@ -370,7 +424,7 @@ function renderOnline() {
       return `<button class="online-user" data-id="${p.id}">
         <img src="${p.avatarUrl}" alt=""/>
         <span class="u-info"><span class="u-name">${esc(fullName(p))}${you}</span>
-        <span class="u-stat">${esc(statusLabel(p))}</span></span>
+          <span class="u-stat">${esc(statusLabel(p))} · bureau ${p.homeDeskId}</span></span>
       </button>`;
     })
     .join("");
@@ -389,7 +443,10 @@ function openProfile(id: string) {
   ($("prof-avi") as HTMLImageElement).src = p.avatarUrl;
   $("prof-name").textContent = fullName(p);
   $("prof-status").textContent = statusLabel(p);
-  $("prof-meta").textContent = p.sittingDeskId ? `Zit aan bureau ${p.sittingDeskId}` : "Loopt rond in de tent";
+  $("prof-meta").textContent = p.sittingDeskId
+    ? `Zit aan bureau ${p.sittingDeskId}`
+    : `Bureau ${p.homeDeskId} · loopt rond`;
+  $("prof-school").textContent = `${p.age} jaar · ${p.school} · ${p.program}`;
   $("prof-dm").onclick = () => {
     $("modal-profile").classList.remove("open");
     openDm(p.id);
@@ -486,7 +543,11 @@ $("dm-back").addEventListener("click", () => {
 });
 
 $("status-select").addEventListener("change", () => {
-  state.socket?.emit("status", { status: ($("status-select") as HTMLSelectElement).value as Status });
+  const status = ($("status-select") as HTMLSelectElement).value as Status;
+  state.socket?.emit("status", { status });
+  if (status === "studeren" && state.me?.homeDeskId) {
+    ui.deskHint.textContent = `Je zit aan bureau ${state.me.homeDeskId} (studeermodus)`;
+  }
 });
 
 $("btn-speeddate").addEventListener("click", () => $("modal-date").classList.add("open"));

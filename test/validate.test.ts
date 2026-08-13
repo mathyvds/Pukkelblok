@@ -40,27 +40,72 @@ test("wereld: botsing houdt je uit de muur", () => {
   assert.ok(next.x >= PLAYER_R);
 });
 
-test("store: gastaccount zonder e-mail", () => {
+function guest(
+  extra: Partial<{
+    firstName: string;
+    lastName: string;
+    age: number;
+    school: string;
+    program: string;
+    deskId: number;
+    avatar: { kind: "preset"; preset: number };
+  }> = {}
+) {
+  return {
+    firstName: "Lina",
+    lastName: "Peeters",
+    age: 21,
+    school: "PXL",
+    program: "Informatica",
+    deskId: 3,
+    avatar: { kind: "preset" as const, preset: 1 },
+    ...extra,
+  };
+}
+
+test("join zet je aan het gekozen bureau", () => {
   const store = createStore(createWorld());
-  const avatar = { kind: "preset" as const, preset: 1 };
-  const a = store.join({ firstName: "Lina", lastName: "Peeters", avatar });
+  const a = store.join(guest());
   if (!("user" in a)) throw new Error("expected user");
   store.connect(a.user.id, "sock-a");
   assert.equal(store.onlineCount(), 1);
+  assert.equal(a.user.homeDeskId, 3);
+  assert.equal(a.user.sittingDeskId, 3);
+  assert.equal(a.user.status, "studeren");
+  assert.equal(a.user.school, "PXL");
   const pub = store.publicUser(a.user);
-  assert.equal(pub.firstName, "Lina");
   assert.ok(!("email" in pub));
   assert.ok(shirtColor("LinaPeeters").startsWith("#"));
 });
 
+test("twee studenten kunnen hetzelfde bureau niet claimen", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 7 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 7, avatar: { kind: "preset" as const, preset: 2 } }));
+  assert.ok("user" in a);
+  assert.ok("error" in b);
+});
+
+test("status Studeren brengt je terug naar je bureau", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 12 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  store.stand(a.user.id);
+  const back = store.setStatus(a.user.id, "studeren", "");
+  assert.equal(back?.sittingDeskId, 12);
+  assert.equal(back?.status, "studeren");
+});
+
 test("speeddate koppelt twee wachtenden", () => {
   const store = createStore(createWorld());
-  const avatar = { kind: "preset" as const, preset: 2 };
-  const a = store.join({ firstName: "Adam", lastName: "Aerts", avatar });
-  const b = store.join({ firstName: "Britt", lastName: "Beelen", avatar });
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } }));
   if (!("user" in a) || !("user" in b)) throw new Error("expected users");
   store.connect(a.user.id, "s1");
   store.connect(b.user.id, "s2");
+  store.setStatus(a.user.id, "kennismaken", "");
+  store.setStatus(b.user.id, "kennismaken", "");
   store.joinQueue(a.user.id);
   store.joinQueue(b.user.id);
   const { started } = store.matchDates();

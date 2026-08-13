@@ -20,7 +20,7 @@ type TouchDir = "up" | "down" | "left" | "right";
 const SPEED = 220;
 export const STATUS_COLOR: Record<Status, string> = {
   kennismaken: "#22c55e",
-  blokken: "#3b82f6",
+  studeren: "#3b82f6",
   pauze: "#f59e0b",
 };
 

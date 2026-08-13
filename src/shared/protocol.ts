@@ -4,8 +4,13 @@ export const MAX_ONLINE = 100;
 export const MAX_AVATAR_BYTES = 100_000;
 export const MAX_CHAT = 200;
 
-export const statuses = ["kennismaken", "blokken", "pauze"] as const;
+export const statuses = ["kennismaken", "studeren", "pauze"] as const;
 export type Status = (typeof statuses)[number];
+
+export const SCHOOLS = ["PXL", "UCLL", "Universiteit Hasselt", "Andere"] as const;
+export type School = (typeof SCHOOLS)[number];
+
+export const DESK_COUNT = 24;
 
 export type PublicPlayer = {
   id: string;
@@ -18,6 +23,10 @@ export type PublicPlayer = {
   facing: 1 | -1;
   moving: boolean;
   sittingDeskId: number | null;
+  homeDeskId: number;
+  age: number;
+  school: string;
+  program: string;
   status: Status;
   statusText: string;
   typing: boolean;
@@ -143,6 +152,10 @@ export type ServerToClientEvents = {
 export const joinSchema = z.object({
   firstName: z.string().min(1).max(40),
   lastName: z.string().min(1).max(60),
+  age: z.number().int().min(15).max(80),
+  school: z.string().min(2).max(40),
+  program: z.string().min(2).max(60),
+  deskId: z.number().int().min(1).max(DESK_COUNT),
   avatar: z.union([
     z.object({ preset: z.number().int().min(1).max(8) }),
     z.object({ dataUrl: z.string().min(20).max(180_000) }),

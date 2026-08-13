@@ -45,6 +45,28 @@
       <label>Familienaam
         <input id="last-name" name="lastName" type="text" autocomplete="family-name" maxlength="40" required placeholder="Peeters"/>
       </label>
+      <label>Leeftijd
+        <input id="age" name="age" type="number" min="15" max="80" required placeholder="21"/>
+      </label>
+      <label>School
+        <select id="school" name="school" required>
+          <option value="" disabled selected>Kies je school…</option>
+          <option value="PXL">PXL</option>
+          <option value="UCLL">UCLL</option>
+          <option value="Universiteit Hasselt">Universiteit Hasselt</option>
+          <option value="Andere">Andere</option>
+        </select>
+      </label>
+      <label id="school-other-wrap" hidden>Andere school
+        <input id="school-other" type="text" maxlength="40" placeholder="Naam van je hogeschool of uni"/>
+      </label>
+      <label>Studierichting
+        <input id="program" name="program" type="text" maxlength="60" required placeholder="bv. Verpleegkunde, Informatica"/>
+      </label>
+      <p class="label">Jouw bureau in de tent</p>
+      <p class="mini">Kies het nummer dat op je echte tafel staat. Je start daar in studeermodus.</p>
+      <div class="desk-grid" id="desk-grid"></div>
+      <input type="hidden" id="desk-id" name="deskId" required/>
       <div class="avatar-block">
         <p class="label">Jouw avatar</p>
         <div class="avatar-preview-wrap">
@@ -80,7 +102,7 @@
       </div>
       <select id="status-select" title="Status">
         <option value="kennismaken">Klaar om kennis te maken</option>
-        <option value="blokken">Aan het blokken</option>
+        <option value="studeren">Studeren</option>
         <option value="pauze">Pauze</option>
       </select>
       <button class="btn-hud" id="btn-speeddate">Speeddate</button>
@@ -149,6 +171,7 @@
       <h3 id="prof-name"></h3>
       <p class="prof-status" id="prof-status"></p>
       <p class="prof-meta" id="prof-meta"></p>
+      <p class="prof-meta" id="prof-school"></p>
       <button class="btn-primary wide" id="prof-dm">Stuur een privébericht</button>
     </div>
   </div>

@@ -11,6 +11,7 @@ import {
   parseAvatar,
   validateChat,
   validateNames,
+  validateProfile,
 } from "../shared/validate";
 import { joinSchema, type ClientToServerEvents, type ServerToClientEvents } from "../shared/protocol";
 
@@ -53,8 +54,8 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, name: "Blokbar", festival: "Pukkelpop 2026", online: store.onlineCount(), max: MAX_ONLINE });
 });
 
-app.get("/api/world", (_req, res) => {
-  res.json(publicWorld(world));
+app.get("/api/desks", (_req, res) => {
+  res.json({ desks: store.deskOccupancy() });
 });
 
 app.get("/api/me", (req, res) => {
@@ -68,6 +69,8 @@ app.post("/api/join", (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Ongeldige gegevens." });
   const names = validateNames(parsed.data.firstName, parsed.data.lastName);
   if ("error" in names) return res.status(400).json({ error: names.error });
+  const profile = validateProfile(parsed.data);
+  if ("error" in profile) return res.status(400).json({ error: profile.error });
   const avatar = parseAvatar(parsed.data.avatar);
   if ("error" in avatar) return res.status(400).json({ error: avatar.error });
 
@@ -75,6 +78,10 @@ app.post("/api/join", (req, res) => {
     sid: req.signedCookies[COOKIE],
     firstName: names.firstName,
     lastName: names.lastName,
+    age: profile.age,
+    school: profile.school,
+    program: profile.program,
+    deskId: profile.deskId,
     avatar,
   });
   if ("error" in result) return res.status(409).json({ error: result.error });

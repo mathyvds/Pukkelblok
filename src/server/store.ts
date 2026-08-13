@@ -20,6 +20,10 @@ export type User = {
   facing: 1 | -1;
   moving: boolean;
   sittingDeskId: number | null;
+  homeDeskId: number;
+  age: number;
+  school: string;
+  program: string;
   status: Status;
   statusText: string;
   typing: boolean;
@@ -62,6 +66,10 @@ export function createStore(world: World) {
       facing: user.facing,
       moving: user.moving,
       sittingDeskId: user.sittingDeskId,
+      homeDeskId: user.homeDeskId,
+      age: user.age,
+      school: user.school,
+      program: user.program,
       status: user.status,
       statusText: user.statusText,
       typing: user.typing,
@@ -92,16 +100,43 @@ export function createStore(world: World) {
   }
 
   function occupyDesk(deskId: number, userId: string) {
+    const now = Date.now();
     for (const user of users.values()) {
-      if (user.sittingDeskId === deskId && user.id !== userId && user.online) return false;
+      if (user.id === userId) continue;
+      if (user.homeDeskId !== deskId && user.sittingDeskId !== deskId) continue;
+      if (user.online) return false;
+      if (!user.disconnectedAt) return false;
+      if (now - user.disconnectedAt < 30_000) return false;
     }
     return true;
   }
 
-  function join(input: { sid?: string; firstName: string; lastName: string; avatar: AvatarInput }): { user: User } | { error: string } {
+  function deskOccupancy() {
+    return world.desks.map((desk) => ({
+      id: desk.id,
+      taken: !occupyDesk(desk.id, ""),
+    }));
+  }
+
+  function join(input: {
+    sid?: string;
+    firstName: string;
+    lastName: string;
+    age: number;
+    school: string;
+    program: string;
+    deskId: number;
+    avatar: AvatarInput;
+  }): { user: User } | { error: string } {
     let user = input.sid ? getBySid(input.sid) : null;
     if (!user && onlineCount() >= MAX_ONLINE) {
       return { error: `De tent zit vol (${MAX_ONLINE} studenten). Probeer zo dadelijk opnieuw.` };
+    }
+
+    const desk = deskById(world, input.deskId);
+    if (!desk) return { error: "Dit bureau bestaat niet." };
+    if (!occupyDesk(desk.id, user?.id || "")) {
+      return { error: `Bureau ${desk.id} is al bezet. Kies het nummer van jouw tafel.` };
     }
 
     if (!user) {
@@ -111,12 +146,16 @@ export function createStore(world: World) {
         firstName: input.firstName,
         lastName: input.lastName,
         color: shirtColor(`${input.firstName}${input.lastName}`),
-        x: world.spawn.x + (Math.random() * 80 - 40),
-        y: world.spawn.y + (Math.random() * 40 - 20),
+        x: desk.seatX,
+        y: desk.seatY,
         facing: 1,
         moving: false,
-        sittingDeskId: null,
-        status: "kennismaken",
+        sittingDeskId: desk.id,
+        homeDeskId: desk.id,
+        age: input.age,
+        school: input.school,
+        program: input.program,
+        status: "studeren",
         statusText: "",
         typing: false,
         draft: "",
@@ -136,6 +175,15 @@ export function createStore(world: World) {
       user.firstName = input.firstName;
       user.lastName = input.lastName;
       user.color = shirtColor(`${input.firstName}${input.lastName}`);
+      user.age = input.age;
+      user.school = input.school;
+      user.program = input.program;
+      user.homeDeskId = desk.id;
+      user.sittingDeskId = desk.id;
+      user.x = desk.seatX;
+      user.y = desk.seatY;
+      user.moving = false;
+      user.status = "studeren";
     }
 
     if (input.avatar.kind === "preset") {
@@ -219,6 +267,7 @@ export function createStore(world: World) {
     const user = get(userId);
     if (!user) return null;
     user.sittingDeskId = null;
+    if (user.status === "studeren") user.status = "pauze";
     return publicUser(user);
   }
 
@@ -227,6 +276,15 @@ export function createStore(world: World) {
     if (!user) return null;
     user.status = validateStatus(status);
     user.statusText = String(statusText || "").trim().slice(0, 60);
+    if (user.status === "studeren") {
+      const desk = deskById(world, user.homeDeskId);
+      if (desk) {
+        user.sittingDeskId = desk.id;
+        user.x = desk.seatX;
+        user.y = desk.seatY;
+        user.moving = false;
+      }
+    }
     return publicUser(user);
   }
 
@@ -285,6 +343,9 @@ export function createStore(world: World) {
   function joinQueue(userId: string): { queued: boolean; position: number } | { error: string } {
     const user = get(userId);
     if (!user) return { error: "Niet ingelogd." };
+    if (user.status === "studeren") {
+      return { error: "Je zit in studeermodus. Kies eerst Pauze of Kennismaken." };
+    }
     if (dates.has(userId)) return { error: "Je zit al in een speeddate." };
     if (dateQueue.includes(userId)) return { queued: true, position: dateQueue.indexOf(userId) + 1 };
     dateQueue.push(userId);
@@ -409,5 +470,6 @@ export function createStore(world: World) {
     avatarOf,
     chatHistory,
     prune,
+    deskOccupancy,
   };
 }

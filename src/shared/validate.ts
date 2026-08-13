@@ -1,4 +1,4 @@
-import { MAX_AVATAR_BYTES, MAX_CHAT, MAX_ONLINE, statuses, type Status } from "./protocol";
+import { DESK_COUNT, MAX_AVATAR_BYTES, MAX_CHAT, MAX_ONLINE, statuses, type Status } from "./protocol";
 
 export { MAX_ONLINE, MAX_AVATAR_BYTES, MAX_CHAT };
 
@@ -26,6 +26,24 @@ export function validateNames(firstName: unknown, lastName: unknown): NameOk | F
   if (!NAME_RE.test(first)) return { error: "Voornaam mag alleen letters, spaties of koppeltekens bevatten." };
   if (!NAME_RE.test(last)) return { error: "Familienaam mag alleen letters, spaties of koppeltekens bevatten." };
   return { firstName: first, lastName: last };
+}
+
+export function validateProfile(input: { age: unknown; school: unknown; program: unknown; deskId: unknown }):
+  | { age: number; school: string; program: string; deskId: number }
+  | Fail {
+  const age = Number(input.age);
+  if (!Number.isInteger(age) || age < 15 || age > 80) {
+    return { error: "Vul een geldige leeftijd in (15–80)." };
+  }
+  const school = cleanName(input.school, 40);
+  const program = cleanName(input.program, 60);
+  if (school.length < 2) return { error: "Kies of vul je school in." };
+  if (program.length < 2) return { error: "Vul je studierichting in." };
+  const deskId = Number(input.deskId);
+  if (!Number.isInteger(deskId) || deskId < 1 || deskId > DESK_COUNT) {
+    return { error: `Kies het nummer van je bureau (1–${DESK_COUNT}).` };
+  }
+  return { age, school, program, deskId };
 }
 
 export function validateStatus(status: unknown): Status {

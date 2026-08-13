@@ -219,6 +219,40 @@ kbd {
   color: var(--color-muted);
   margin: 0.6rem 0 0.3rem;
 }
+.join-card select {
+  width: 100%;
+  background: #0a0a0a;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem;
+  color: #fff;
+  font-size: 1rem;
+}
+.desk-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  margin: 0.4rem 0 0.8rem;
+}
+.desk-grid button {
+  background: #1a1a1a;
+  color: #ffe600;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 0.45rem 0;
+  font-weight: 800;
+  font-size: 0.78rem;
+}
+.desk-grid button.sel {
+  background: #ffe600;
+  color: #111;
+  border-color: #ffe600;
+}
+.desk-grid button:disabled {
+  color: #555;
+  background: #0f0f0f;
+  cursor: not-allowed;
+}
 .join-card input:not([type="file"]) {
   width: 100%;
   background: #0a0a0a;

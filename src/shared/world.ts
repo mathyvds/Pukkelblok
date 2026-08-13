@@ -1,9 +1,12 @@
 import type { Desk, PublicWorld, SpeedTable, Zone } from "./protocol";
+import { DESK_COUNT } from "./protocol";
 
 export const WORLD_W = 2400;
 export const WORLD_H = 1680;
 export const PLAYER_R = 28;
 export const MAX_SPEED = 420;
+export const DESK_COLS = 6;
+export const DESK_ROWS = Math.ceil(DESK_COUNT / DESK_COLS);
 
 export const ICEBREAKERS = [
   "Wat studeer je, en waar?",
@@ -27,8 +30,9 @@ function desk(id: number, x: number, y: number): Desk {
 function makeDesks() {
   const desks: Desk[] = [];
   let id = 1;
-  for (let row = 0; row < 4; row++) {
-    for (let col = 0; col < 6; col++) {
+  for (let row = 0; row < DESK_ROWS; row++) {
+    for (let col = 0; col < DESK_COLS; col++) {
+      if (id > DESK_COUNT) break;
       desks.push(desk(id, 360 + col * 270, 430 + row * 210));
       id += 1;
     }
