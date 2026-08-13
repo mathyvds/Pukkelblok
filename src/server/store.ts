@@ -66,6 +66,7 @@ export function createStore(world: World) {
   const dates = new Map<string, DateMatch>();
   const pendingMoves: PlayerMove[] = [];
   const kicked = new Set<string>();
+  const kickedIdentities = new Set<string>();
 
   function publicUser(user: User): PublicPlayer {
     return {
@@ -87,7 +88,6 @@ export function createStore(world: World) {
       statusText: user.statusText,
       pauseUntil: user.pauseUntil || 0,
       typing: user.typing,
-      draft: user.draft,
       bubble: user.bubble,
       inDate: dates.has(user.id),
     };
@@ -170,11 +170,18 @@ export function createStore(world: World) {
     const name = `${user.firstName} ${user.lastName}`;
     leaveQueue(userId);
     const endedDate = endDate(userId, reason);
-    if (reason === "kick") kicked.add(sid);
+    if (reason === "kick") {
+      kicked.add(sid);
+      kickedIdentities.add(identityKey(user.firstName, user.lastName, user.age));
+    }
     users.delete(userId);
     sessions.delete(sid);
     avatars.delete(userId);
     sockets.delete(userId);
+    for (const key of [...dms.keys()]) {
+      const [left, right] = key.split(":");
+      if (left === userId || right === userId) dms.delete(key);
+    }
     return { socketId, name, endedDate, id: userId };
   }
 
@@ -188,9 +195,12 @@ export function createStore(world: World) {
     return removeUser(user.id, "leave");
   }
 
-  function chatHistoryFor(userId: string) {
-    const near = new Set(nearbyIds(userId));
-    return chat.filter((m) => m.scope === "tent" || near.has(m.from)).slice(-40);
+  function identityKey(firstName: string, lastName: string, age: number) {
+    return `${firstName.normalize("NFC").toLowerCase()}|${lastName.normalize("NFC").toLowerCase()}|${age}`;
+  }
+
+  function chatHistoryFor(_userId: string) {
+    return chat.filter((m) => m.scope === "tent").slice(-40);
   }
 
   function join(input: {
@@ -204,6 +214,9 @@ export function createStore(world: World) {
     avatar: AvatarInput;
   }): { user: User } | { error: string } {
     if (input.sid && kicked.has(input.sid)) {
+      return { error: "Je bent uit de tent gezet. Vraag de host als dat een vergissing was." };
+    }
+    if (kickedIdentities.has(identityKey(input.firstName, input.lastName, input.age))) {
       return { error: "Je bent uit de tent gezet. Vraag de host als dat een vergissing was." };
     }
     let user = input.sid ? getBySid(input.sid) : null;
@@ -419,12 +432,12 @@ export function createStore(world: World) {
     return ended;
   }
 
-  function setTyping(userId: string, typing: boolean, draft: string) {
+  function setTyping(userId: string, typing: boolean) {
     const user = get(userId);
     if (!user) return null;
     user.typing = Boolean(typing);
-    user.draft = user.typing ? String(draft || "").slice(0, 80) : "";
-    return { id: user.id, typing: user.typing, draft: user.draft, x: user.x, y: user.y };
+    user.draft = "";
+    return { id: user.id, typing: user.typing, x: user.x, y: user.y };
   }
 
   function rateLimitChat(user: User, kind: "near" | "tent"): { ok: true } | { error: string } {
@@ -469,6 +482,9 @@ export function createStore(world: World) {
   function addDm(from: User, toId: string, text: string): { msg: DirectMessage; to: User; key: string } | { error: string } {
     const to = get(toId);
     if (!to) return { error: "Deze student is niet (meer) in de tent." };
+    const now = Date.now();
+    if (now - (from.lastChatAt || 0) < CHAT_COOLDOWN_MS) return { error: "silent" };
+    from.lastChatAt = now;
     const key = dmKey(from.id, to.id);
     if (!dms.has(key)) dms.set(key, []);
     const msg: DirectMessage = {
@@ -638,7 +654,7 @@ export function createStore(world: World) {
   }
 
   function chatHistory() {
-    return chat.slice(-50);
+    return chat.filter((m) => m.scope === "tent").slice(-50);
   }
 
   return {

@@ -479,8 +479,8 @@ function syncDom() {
     el.querySelector(".nametag")!.textContent = p.firstName;
     (el.querySelector(".st-dot") as HTMLElement).style.background = STATUS_COLOR[p.status] || "#22c55e";
     const bubble = el.querySelector(".bubble")!;
-    if (p.typing && p.draft) {
-      bubble.textContent = p.draft;
+    if (p.typing) {
+      bubble.textContent = "…";
       bubble.className = "bubble on typing";
     } else if (p.bubble) {
       bubble.textContent = p.bubble;

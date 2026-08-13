@@ -1,4 +1,5 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -14,17 +15,22 @@ import {
   validateProfile,
 } from "../shared/validate";
 import { joinSchema, type ClientToServerEvents, type ServerToClientEvents } from "../shared/protocol";
+import { clientKey, cookieSecure, createRateLimit, requireCookieSecret, timingSafeEqualString } from "./security";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../..");
 const PORT = Number(process.env.PORT) || 3000;
-const COOKIE_SECRET = process.env.COOKIE_SECRET || "blokbar-dev-secret-change-me";
+const isProd = process.env.NODE_ENV === "production";
+const COOKIE_SECRET = requireCookieSecret(isProd, process.env.COOKIE_SECRET);
+const COOKIE_SECURE = cookieSecure(isProd, process.env.COOKIE_SECURE);
 const COOKIE = "blokbar";
 const HOST_COOKIE = "blokbar-host";
 const HOST_PIN = String(process.env.HOST_PIN || "").trim();
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const RECONNECT_GRACE_MS = 5_000;
-const isProd = process.env.NODE_ENV === "production";
+const hostSessions = new Set<string>();
+const hostLoginLimit = createRateLimit(15 * 60 * 1000, 5);
+const joinLimit = createRateLimit(60 * 1000, 8);
 
 const app = express();
 const server = http.createServer(app);
@@ -59,31 +65,40 @@ function broadcastLeave(userId: string, endedDate: { a: string; b: string; reaso
 app.set("trust proxy", 1);
 app.use(cookieParser(COOKIE_SECRET));
 app.use(express.json({ limit: "180kb" }));
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "same-origin");
+  next();
+});
 
 function setSessionCookie(res: express.Response, sid: string) {
   res.cookie(COOKIE, sid, {
     httpOnly: true,
     signed: true,
     sameSite: "lax",
-    secure: process.env.COOKIE_SECURE === "true",
+    secure: COOKIE_SECURE,
     maxAge: WEEK_MS,
     path: "/",
   });
 }
 
 function setHostCookie(res: express.Response) {
-  res.cookie(HOST_COOKIE, "ok", {
+  const token = crypto.randomUUID();
+  hostSessions.add(token);
+  res.cookie(HOST_COOKIE, token, {
     httpOnly: true,
     signed: true,
     sameSite: "lax",
-    secure: process.env.COOKIE_SECURE === "true",
+    secure: COOKIE_SECURE,
     maxAge: WEEK_MS,
     path: "/",
   });
 }
 
 function isHost(req: express.Request) {
-  return Boolean(HOST_PIN) && req.signedCookies[HOST_COOKIE] === "ok";
+  const token = req.signedCookies[HOST_COOKIE];
+  return Boolean(HOST_PIN) && typeof token === "string" && hostSessions.has(token);
 }
 
 function requireHost(req: express.Request, res: express.Response, next: express.NextFunction) {
@@ -112,6 +127,9 @@ app.get("/api/me", (req, res) => {
 });
 
 app.post("/api/join", (req, res) => {
+  if (!joinLimit.allow(clientKey(req))) {
+    return res.status(429).json({ error: "Te veel pogingen. Wacht even en probeer opnieuw." });
+  }
   const parsed = joinSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Ongeldige gegevens." });
   const names = validateNames(parsed.data.firstName, parsed.data.lastName);
@@ -160,13 +178,21 @@ app.get("/api/host/status", (req, res) => {
 
 app.post("/api/host/login", (req, res) => {
   if (!HOST_PIN) return res.status(503).json({ error: "HOST_PIN is niet ingesteld." });
+  const ip = clientKey(req);
+  if (!hostLoginLimit.allow(ip)) {
+    return res.status(429).json({
+      error: `Te veel pogingen. Probeer over ${hostLoginLimit.retryAfterSec(ip)}s opnieuw.`,
+    });
+  }
   const pin = String(req.body?.pin || "").trim();
-  if (pin !== HOST_PIN) return res.status(401).json({ error: "Verkeerde host-code." });
+  if (!timingSafeEqualString(pin, HOST_PIN)) return res.status(401).json({ error: "Verkeerde host-code." });
   setHostCookie(res);
   res.json({ ok: true, state: store.hostSnapshot() });
 });
 
-app.post("/api/host/logout", (_req, res) => {
+app.post("/api/host/logout", (req, res) => {
+  const token = req.signedCookies[HOST_COOKIE];
+  if (typeof token === "string") hostSessions.delete(token);
   res.clearCookie(HOST_COOKIE, { path: "/" });
   res.json({ ok: true });
 });
@@ -185,7 +211,8 @@ app.post("/api/host/kick", requireHost, (req, res) => {
     sock?.disconnect(true);
   }
   broadcastLeave(result.id, result.endedDate);
-  io.to("tent").emit("announce", { text: `${result.name} is uit de tent gezet.`, at: Date.now() });
+  const first = result.name.split(" ")[0] || "Iemand";
+  io.to("tent").emit("announce", { text: `${first} is uit de tent gezet.`, at: Date.now() });
   res.json({ ok: true, state: store.hostSnapshot() });
 });
 
@@ -204,6 +231,8 @@ app.get("/media/avatar/:id", (req, res) => {
   const file = store.avatarOf(req.params.id);
   if (!file) return res.status(404).end();
   res.setHeader("Cache-Control", "public, max-age=3600");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Disposition", "inline");
   res.type(file.mime).send(file.buffer);
 });
 
@@ -277,7 +306,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("typing", (data) => {
-    const payload = store.setTyping(userId, Boolean(data?.typing), String(data?.draft || ""));
+    const payload = store.setTyping(userId, Boolean(data?.typing));
     if (payload) {
       for (const id of store.nearbyIds(userId)) {
         emitToSocket(id, (sid) => io.to(sid).emit("player:typing", payload));
@@ -329,7 +358,10 @@ io.on("connection", (socket) => {
     const me = store.get(userId);
     if (!me) return;
     const result = store.addDm(me, data.to, parsed.text);
-    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
+    if ("error" in result) {
+      if (result.error !== "silent") socket.emit("notice", { type: "error", text: result.error });
+      return;
+    }
     socket.emit("dm", result.msg);
     const other = store.get(result.to.id);
     if (other?.socketId) io.to(other.socketId).emit("dm", result.msg);
