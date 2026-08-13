@@ -23,6 +23,7 @@ const COOKIE = "blokbar";
 const HOST_COOKIE = "blokbar-host";
 const HOST_PIN = String(process.env.HOST_PIN || "").trim();
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const RECONNECT_GRACE_MS = 5_000;
 const isProd = process.env.NODE_ENV === "production";
 
 const app = express();
@@ -36,6 +37,24 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
 
 const world = createWorld();
 const store = createStore(world);
+const leaveWait = new Map<string, ReturnType<typeof setTimeout>>();
+
+function cancelLeaveWait(userId: string) {
+  const timer = leaveWait.get(userId);
+  if (timer) {
+    clearTimeout(timer);
+    leaveWait.delete(userId);
+  }
+}
+
+function broadcastLeave(userId: string, endedDate: { a: string; b: string; reason?: string } | null) {
+  io.to("tent").emit("player:leave", { id: userId });
+  io.to("tent").emit("presence", { online: store.onlineCount(), max: MAX_ONLINE });
+  if (endedDate) {
+    const other = endedDate.a === userId ? endedDate.b : endedDate.a;
+    emitToSocket(other, (id) => io.to(id).emit("speeddate:ended", { reason: endedDate.reason || "disconnect" }));
+  }
+}
 
 app.set("trust proxy", 1);
 app.use(cookieParser(COOKIE_SECRET));
@@ -83,7 +102,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.get("/api/desks", (_req, res) => {
-  res.json({ desks: store.deskOccupancy() });
+  res.json({ desks: store.deskOccupancy().map(({ id, taken }) => ({ id, taken })) });
 });
 
 app.get("/api/me", (req, res) => {
@@ -122,7 +141,15 @@ app.post("/api/join", (req, res) => {
   });
 });
 
-app.post("/api/logout", (_req, res) => {
+app.post("/api/logout", (req, res) => {
+  const result = store.logout(req.signedCookies[COOKIE]);
+  if (result && !("error" in result)) {
+    cancelLeaveWait(result.id);
+    if (result.socketId) {
+      io.sockets.sockets.get(result.socketId)?.disconnect(true);
+    }
+    broadcastLeave(result.id, result.endedDate);
+  }
   res.clearCookie(COOKIE, { path: "/" });
   res.json({ ok: true });
 });
@@ -151,17 +178,13 @@ app.get("/api/host/state", requireHost, (_req, res) => {
 app.post("/api/host/kick", requireHost, (req, res) => {
   const result = store.kick(String(req.body?.id || ""));
   if ("error" in result) return res.status(404).json({ error: result.error });
+  cancelLeaveWait(result.id);
   if (result.socketId) {
     const sock = io.sockets.sockets.get(result.socketId);
     sock?.emit("kicked", { reason: "De host heeft je uit de tent gezet." });
     sock?.disconnect(true);
   }
-  io.to("tent").emit("player:leave", { id: result.id });
-  io.to("tent").emit("presence", { online: store.onlineCount(), max: MAX_ONLINE });
-  if (result.endedDate) {
-    const other = result.endedDate.a === result.id ? result.endedDate.b : result.endedDate.a;
-    emitToSocket(other, (id) => io.to(id).emit("speeddate:ended", { reason: "kick" }));
-  }
+  broadcastLeave(result.id, result.endedDate);
   io.to("tent").emit("announce", { text: `${result.name} is uit de tent gezet.`, at: Date.now() });
   res.json({ ok: true, state: store.hostSnapshot() });
 });
@@ -198,11 +221,18 @@ io.use((socket, next) => {
 
 io.on("connection", (socket) => {
   const userId = socket.data.userId as string;
-  const user = store.connect(userId, socket.id);
-  if (!user) {
+  const previous = store.get(userId);
+  const prevSocketId = previous?.socketId;
+  cancelLeaveWait(userId);
+  const connected = store.connect(userId, socket.id);
+  if (!connected) {
     socket.disconnect(true);
     return;
   }
+  if (prevSocketId && prevSocketId !== socket.id) {
+    io.sockets.sockets.get(prevSocketId)?.disconnect(true);
+  }
+  const { user, announceJoin } = connected;
 
   socket.join("tent");
   socket.emit("hello", {
@@ -213,7 +243,11 @@ io.on("connection", (socket) => {
     online: store.onlineCount(),
     max: MAX_ONLINE,
   });
-  socket.broadcast.to("tent").emit("player:join", store.publicUser(user));
+  if (announceJoin) {
+    socket.broadcast.to("tent").emit("player:join", store.publicUser(user));
+  } else {
+    socket.broadcast.to("tent").emit("player:update", store.publicUser(user));
+  }
   io.to("tent").emit("presence", { online: store.onlineCount(), max: MAX_ONLINE });
 
   socket.on("move", (data) => {
@@ -223,7 +257,12 @@ io.on("connection", (socket) => {
 
   socket.on("sit", (deskId) => {
     const result = store.sit(userId, deskId);
-    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
+    if ("error" in result) {
+      socket.emit("notice", { type: "error", text: result.error });
+      const me = store.get(userId);
+      if (me) socket.emit("player:correct", store.publicUser(me));
+      return;
+    }
     io.to("tent").emit("player:update", result.user);
   });
 
@@ -308,14 +347,16 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    const { endedDate } = store.disconnect(userId);
-    io.to("tent").emit("player:leave", { id: userId });
-    io.to("tent").emit("presence", { online: store.onlineCount(), max: MAX_ONLINE });
-    if (endedDate) {
-      const other = endedDate.a === userId ? endedDate.b : endedDate.a;
-      const target = store.get(other);
-      if (target?.socketId) io.to(target.socketId).emit("speeddate:ended", { reason: "disconnect" });
-    }
+    const dropped = store.dropSocket(userId, socket.id);
+    if (dropped.stale || !dropped.user) return;
+    cancelLeaveWait(userId);
+    const timer = setTimeout(() => {
+      leaveWait.delete(userId);
+      const done = store.finishDisconnect(userId);
+      if (!done) return;
+      broadcastLeave(userId, done.endedDate);
+    }, RECONNECT_GRACE_MS);
+    leaveWait.set(userId, timer);
   });
 });
 

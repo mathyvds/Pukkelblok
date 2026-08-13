@@ -1,4 +1,5 @@
 import type { PlayerMove, PublicPlayer, PublicWorld, Status } from "../shared/protocol";
+import { clampMove, solidsOf, type World } from "../shared/world";
 
 export type WorldPerson = PublicPlayer & {
   walkT: number;
@@ -25,7 +26,7 @@ export const STATUS_COLOR: Record<Status, string> = {
 };
 
 const state = {
-  world: null as PublicWorld | null,
+  world: null as World | null,
   canvas: null as HTMLCanvasElement | null,
   ctx: null as CanvasRenderingContext2D | null,
   viewport: null as HTMLElement | null,
@@ -46,6 +47,7 @@ const state = {
   lastTs: 0,
   lastPos: { x: 0, y: 0, moving: false },
   handlers: {} as WorldHandlers,
+  mounted: false,
 };
 
 export function mount(opts: {
@@ -62,15 +64,18 @@ export function mount(opts: {
   state.avatarsEl = opts.avatarsEl;
   state.handlers = opts.handlers;
   resize();
-  window.addEventListener("resize", resize);
-  window.addEventListener("keydown", onKey);
-  window.addEventListener("keyup", onKeyUp);
-  state.canvas.addEventListener("click", onClick);
-  loop(performance.now());
+  if (!state.mounted) {
+    window.addEventListener("resize", resize);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    state.canvas.addEventListener("click", onClick);
+    state.mounted = true;
+    loop(performance.now());
+  }
 }
 
 export function setWorld(world: PublicWorld) {
-  state.world = world;
+  state.world = { ...world, solids: solidsOf(world) };
   state.cache = null;
   if (state.layer) {
     state.layer.style.width = `${world.width}px`;
@@ -160,15 +165,9 @@ function onClick(e: MouseEvent) {
     state.handlers.onClickPerson?.(person.id);
     return;
   }
-  const desk = hitDesk(worldPt.x, worldPt.y);
   const self = me();
+  const desk = hitDesk(worldPt.x, worldPt.y);
   if (desk) {
-    if (self) {
-      self.sittingDeskId = desk.id;
-      self.x = desk.seatX;
-      self.y = desk.seatY;
-      self.moving = false;
-    }
     state.handlers.onSit?.(desk.id);
     state.target = null;
     return;
@@ -219,32 +218,12 @@ function wantedDir() {
   return { dx, dy };
 }
 
-function blocked(x: number, y: number) {
-  if (!state.world) return false;
-  const r = 26;
-  const boxes = [
-    ...state.world.desks,
-    ...state.world.speedTables,
-    ...state.world.zones.filter((z) => z.id === "bar" || z.id === "stage" || z.id === "info"),
-  ];
-  for (const b of boxes) {
-    const nx = Math.max(b.x, Math.min(x, b.x + b.w));
-    const ny = Math.max(b.y, Math.min(y, b.y + b.h));
-    if ((x - nx) ** 2 + (y - ny) ** 2 < r * r) return true;
-  }
-  return false;
-}
-
 function tryMove(self: WorldPerson, dx: number, dy: number) {
-  const nx = self.x + dx;
-  const ny = self.y + dy;
-  if (!blocked(nx, ny)) {
-    self.x = nx;
-    self.y = ny;
-    return;
-  }
-  if (!blocked(nx, self.y)) self.x = nx;
-  else if (!blocked(self.x, ny)) self.y = ny;
+  const world = state.world;
+  if (!world) return;
+  const next = clampMove(world, self.x, self.y, self.x + dx, self.y + dy);
+  self.x = next.x;
+  self.y = next.y;
 }
 
 function update(dt: number) {
@@ -274,8 +253,6 @@ function update(dt: number) {
         moving = true;
       } else state.target = null;
     }
-    self.x = Math.max(50, Math.min(world.width - 50, self.x));
-    self.y = Math.max(90, Math.min(world.height - 50, self.y));
   }
   self.moving = moving;
   self.ix = self.x;
@@ -495,6 +472,7 @@ function syncDom() {
     el.style.zIndex = String(100 + Math.floor(y));
     el.classList.toggle("walking", Boolean(p.moving) && !p.sittingDeskId);
     el.classList.toggle("sitting", Boolean(p.sittingDeskId));
+    el.classList.toggle("face-left", p.facing === -1);
     (el.querySelector(".torso") as HTMLElement).style.background = p.color || "#FFE600";
     const img = el.querySelector(".face") as HTMLImageElement;
     if (img.getAttribute("src") !== p.avatarUrl) img.src = p.avatarUrl;

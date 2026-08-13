@@ -22,7 +22,7 @@
     document.getElementById("desks").innerHTML = state.desks
       .map(
         (d) =>
-          `<div class="desk${d.taken ? " taken" : ""}"><strong>${d.id}</strong><br>${d.taken ? d.by : "vrij"}</div>`
+          `<div class="desk${d.taken ? " taken" : ""}"><strong>${d.id}</strong><br>${d.taken ? esc(d.by || "bezet") : "vrij"}</div>`
       )
       .join("");
     document.getElementById("people").innerHTML = state.players

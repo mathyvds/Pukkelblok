@@ -7,11 +7,59 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="/styles.css"/>
   <style>
-    body{overflow:auto;background:#110e14}
+    :root {
+      --display: "Bebas Neue", Impact, sans-serif;
+      --card: #1a1520;
+      --line: #3a3344;
+      --yellow: #ffe600;
+      --pink: #e91e8c;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      overflow: auto;
+      background: #110e14;
+      color: #f5f5f5;
+      font-family: Outfit, system-ui, sans-serif;
+    }
+    button { cursor: pointer; border: none; font-family: inherit; }
+    input, select { font-family: inherit; }
+    .btn-primary {
+      background: var(--yellow);
+      color: #111;
+      font-weight: 800;
+      border-radius: 4px;
+      padding: 0.9rem 1.5rem;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .btn-primary.wide { width: 100%; }
+    .btn-hud {
+      background: #1a1a1a;
+      color: #fff;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 0.45rem 0.8rem;
+      font-size: .8rem;
+      font-weight: 700;
+    }
+    .join-note { color: #c8c8c8; font-size: .85rem; margin: .3rem 0 1rem; }
+    .hud-sep { flex: 1; }
+    label { display: block; font-size: .78rem; font-weight: 700; color: #c8c8c8; margin: .6rem 0 .3rem; }
+    #pin {
+      width: 100%;
+      background: #0c0a10;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: #fff;
+      padding: .75rem .9rem;
+      font-size: 1rem;
+    }
     .host{max-width:1100px;margin:0 auto;padding:1.4rem 1rem 3rem}
-    .host h1{font-family:var(--display);font-size:3rem;letter-spacing:.04em}
+    .host h1, .pin-card h1{font-family:var(--display);font-size:3rem;letter-spacing:.04em;margin:0}
+    .host h1 span{color:var(--yellow)}
     .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:1rem 0}
     .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.8rem;text-align:center}
     .stat b{display:block;font-size:1.4rem;color:var(--yellow)}

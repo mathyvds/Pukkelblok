@@ -52,6 +52,20 @@ function makeSpeedTables(): SpeedTable[] {
   }));
 }
 
+export function solidsOf(
+  world: Pick<PublicWorld, "width" | "height" | "desks" | "speedTables" | "zones">
+): Box[] {
+  return [
+    { x: 0, y: 0, w: world.width, h: 70, wall: true },
+    { x: 0, y: world.height - 40, w: world.width, h: 40, wall: true },
+    { x: 0, y: 0, w: 40, h: world.height, wall: true },
+    { x: world.width - 40, y: 0, w: 40, h: world.height, wall: true },
+    ...world.zones.filter((z) => z.id === "bar" || z.id === "stage" || z.id === "info"),
+    ...world.desks.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h })),
+    ...world.speedTables.map((t) => ({ x: t.x, y: t.y, w: t.w, h: t.h })),
+  ];
+}
+
 export function createWorld(): World {
   const desks = makeDesks();
   const speedTables = makeSpeedTables();
@@ -63,27 +77,18 @@ export function createWorld(): World {
     { id: "speeddate", name: "Speeddate", x: WORLD_W - 460, y: 340, w: 400, h: 1900 },
     { id: "lounge", name: "Lounge", x: 50, y: 340, w: 270, h: 1900 },
   ];
-  const solids: Box[] = [
-    { x: 0, y: 0, w: WORLD_W, h: 70, wall: true },
-    { x: 0, y: WORLD_H - 40, w: WORLD_W, h: 40, wall: true },
-    { x: 0, y: 0, w: 40, h: WORLD_H, wall: true },
-    { x: WORLD_W - 40, y: 0, w: 40, h: WORLD_H, wall: true },
-    ...zones.filter((z) => z.id === "bar" || z.id === "stage" || z.id === "info"),
-    ...desks.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h })),
-    ...speedTables.map((t) => ({ x: t.x, y: t.y, w: t.w, h: t.h })),
-  ];
-
-  return {
+  const base = {
     width: WORLD_W,
     height: WORLD_H,
     spawn: { x: WORLD_W / 2, y: WORLD_H - 160 },
     desks,
     speedTables,
-    solids,
     zones,
     proximity: PROXIMITY,
     pauseMs: PAUSE_MS,
   };
+
+  return { ...base, solids: solidsOf(base) };
 }
 
 export function circleHitsBox(x: number, y: number, r: number, box: Box) {
