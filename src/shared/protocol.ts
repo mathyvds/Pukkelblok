@@ -17,7 +17,19 @@ export const PAUSE_MS = 10 * 60 * 1000;
 export const CHAT_COOLDOWN_MS = 700;
 export const SHOUT_COOLDOWN_MS = 60_000;
 export const DATE_WAIT_FALLBACK_MS = 45_000;
+export const DATE_CONTINUE_MS = 30_000;
 export const CIRCLE_MAX = 4;
+export const WAVES = ["👋", "☕", "📚", "💪", "💛"] as const;
+export type WaveEmoji = (typeof WAVES)[number];
+export const WAVE_COOLDOWN_MS = 2000;
+export const WAVE_MS = 2800;
+export const REPORT_REASONS = ["Lastigvallen", "Ongewenste berichten", "Anders"] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+export const DAY_SLOT_IDS = ["stil", "koffie", "lunch", "backstage", "speeddate", "einde"] as const;
+export type DaySlotId = (typeof DAY_SLOT_IDS)[number];
+export const HOST_MOMENTS = ["stand", "speeddate-open", "silence"] as const;
+export type HostMomentId = (typeof HOST_MOMENTS)[number];
+export type IceSource = "profile" | "bar";
 export const STUDY_MINUTES = [25, 50] as const;
 export type StudyMinutes = (typeof STUDY_MINUTES)[number];
 export const DEFAULT_STUDY_MINUTES: StudyMinutes = 50;
@@ -51,6 +63,7 @@ export type PublicPlayer = {
   talkCircleId: string | null;
   dateTableId: string | null;
   studyUntil: number;
+  waving: string;
 };
 
 export type ChatMessage = {
@@ -145,6 +158,46 @@ export type WorldBlocker = {
   h: number;
 };
 
+export type SchoolCorner = {
+  id: "corner-pxl" | "corner-ucll" | "corner-uhasselt" | "corner-andere";
+  school: School;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+export type DaySlot = {
+  id: DaySlotId;
+  time: string;
+  title: string;
+  subtitle: string;
+};
+
+export type InfoBoard = {
+  slotId: DaySlotId;
+  title: string;
+  subtitle: string;
+  moment: string | null;
+};
+
+export type ZoneCount = {
+  id: string;
+  name: string;
+  count: number;
+};
+
+export type Report = {
+  id: string;
+  fromId: string;
+  fromName: string;
+  aboutId: string;
+  aboutName: string;
+  reason: string;
+  at: number;
+};
+
 export type PublicWorld = {
   width: number;
   height: number;
@@ -155,6 +208,9 @@ export type PublicWorld = {
   zones: Zone[];
   seats: Seat[];
   blockers: WorldBlocker[];
+  schoolCorners: SchoolCorner[];
+  daySlots: DaySlot[];
+  board: InfoBoard;
   proximity: number;
   pauseMs: number;
 };
@@ -166,6 +222,8 @@ export type HelloPayload = {
   world: PublicWorld;
   online: number;
   max: number;
+  board: InfoBoard;
+  blockedIds: string[];
 };
 
 export type ClientToServerEvents = {
@@ -181,6 +239,14 @@ export type ClientToServerEvents = {
   dm: (data: { to: string; text: string }) => void;
   "speeddate:join": (data?: { preferSameStudy?: boolean }) => void;
   "speeddate:leave": () => void;
+  "speeddate:continue": (data: { yes: boolean }) => void;
+  wave: (emoji: WaveEmoji) => void;
+  "ice:say": (data: { source: IceSource; otherId?: string }) => void;
+  block: (otherId: string) => void;
+  unblock: (otherId: string) => void;
+  report: (data: { id: string; reason: string }) => void;
+  "pause:extend": () => void;
+  "pause:hang": () => void;
 };
 
 export type ServerToClientEvents = {
@@ -210,6 +276,12 @@ export type ServerToClientEvents = {
   }) => void;
   "speeddate:ended": (payload: { reason: string }) => void;
   "speeddate:waiting": (payload: { waiting: number }) => void;
+  "speeddate:continue-ask": (payload: { partner: PublicPlayer; until: number }) => void;
+  "speeddate:continue-result": (payload: { keep: boolean; partnerId: string }) => void;
+  "player:wave": (payload: { id: string; emoji: WaveEmoji }) => void;
+  "ice:prompt": (payload: { text: string; source: IceSource }) => void;
+  blocked: (payload: { id: string; blocked: boolean }) => void;
+  board: (payload: InfoBoard) => void;
 };
 
 export const joinSchema = z.object({

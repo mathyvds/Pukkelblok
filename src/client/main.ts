@@ -5,6 +5,7 @@ import type {
   PublicPlayer,
   ServerToClientEvents,
   Status,
+  WaveEmoji,
 } from "../shared/protocol";
 import { DESK_COUNT } from "../shared/protocol";
 import * as world from "./world";
@@ -57,6 +58,9 @@ const ui = {
   filterProgram: $("filter-program") as HTMLSelectElement,
   filterNear: $("filter-near") as HTMLInputElement,
   chatShout: $("chat-shout") as HTMLButtonElement,
+  onboard: $("onboard-banner"),
+  dateContinue: $("date-continue"),
+  profIceText: $("prof-ice-text"),
 };
 
 const state = {
@@ -73,6 +77,9 @@ const state = {
   lastTyping: 0,
   filters: { status: "" as "" | Status, school: "", program: "", near: false },
   filterKeys: { schools: "", programs: "" },
+  blocked: new Set<string>(),
+  reportTarget: null as string | null,
+  profileId: null as string | null,
 };
 
 const ambience = createAmbience();
@@ -311,6 +318,7 @@ function enterTent(user: PublicPlayer) {
         }
       },
       onClickPerson: openProfile,
+      onBarIce: () => state.socket?.emit("ice:say", { source: "bar" }),
     },
   });
   connectSocket();
@@ -353,6 +361,8 @@ function connectSocket() {
     ui.chatMsgs.innerHTML = "";
     payload.chat.forEach(addChatLine);
     renderOnline();
+    state.blocked = new Set(payload.blockedIds || []);
+    if (payload.board) world.setBoard(payload.board);
     notify(`Welkom in Pukkelblok, ${payload.you.firstName}. De tent staat — morgen begint PKP.`);
     syncPauseClock(payload.you);
     syncStudyClock(payload.you);
@@ -368,15 +378,16 @@ function connectSocket() {
     state.players.set(p.id, p);
     world.upsert(p);
     renderOnline();
-    if (!existed) notify(`${p.firstName} komt de tent binnen.`);
+    if (!existed && p.id !== state.me?.id && isNearbyPlayer(p)) notify(`${p.firstName} komt de tent binnen.`);
   });
   socket.on("player:leave", ({ id }) => {
     const left = state.players.get(id);
     if (!left) return;
+    const nearby = isNearbyPlayer(left);
     state.players.delete(id);
     world.remove(id);
     renderOnline();
-    if (id !== state.me?.id) notify(`${left.firstName} verlaat de tent.`);
+    if (id !== state.me?.id && nearby) notify(`${left.firstName} verlaat de tent.`);
   });
   socket.on("player:update", (p) => {
     const merged = { ...(state.players.get(p.id) || p), ...p };
@@ -426,10 +437,13 @@ function connectSocket() {
     if (state.dmTarget === otherId) renderDm();
   });
   socket.on("notice", (n) => {
+    if (n.type === "onboard") {
+      showOnboard(n.text);
+      return;
+    }
     notify(n.text);
-    if (n.type === "pause-end") {
-      ($("status-select") as HTMLSelectElement).value = "studeren";
-      if (state.me) syncPauseClock({ ...state.me, status: "studeren", pauseUntil: 0 });
+    if (n.type === "pause-nudge") {
+      $("modal-pause").classList.add("open");
     }
     if (n.type === "study-end") {
       ($("status-select") as HTMLSelectElement).value = "pauze";
@@ -460,6 +474,38 @@ function connectSocket() {
     notify(`Speeddate aan ${payload.tableLabel} met ${payload.partner.firstName}.`);
     syncChatPlace();
   });
+  socket.on("player:wave", (payload) => {
+    const prev = state.players.get(payload.id);
+    if (!prev) return;
+    const merged = { ...prev, waving: payload.emoji, bubble: payload.emoji };
+    state.players.set(payload.id, merged);
+    world.upsert(merged);
+  });
+  socket.on("ice:prompt", (payload) => {
+    if (state.profileId) {
+      ui.profIceText.hidden = false;
+      ui.profIceText.textContent = payload.text;
+    }
+  });
+  socket.on("blocked", ({ id, blocked }) => {
+    if (blocked) state.blocked.add(id);
+    else state.blocked.delete(id);
+    if (state.profileId === id) {
+      $("prof-block").textContent = blocked ? "Deblokkeer" : "Blokkeer";
+    }
+  });
+  socket.on("board", (board) => world.setBoard(board));
+  socket.on("speeddate:continue-ask", (payload) => {
+    $("modal-date").classList.add("open");
+    $("date-copy").textContent = `Wil je verder chatten met ${fullName(payload.partner)}?`;
+    ui.dateContinue.hidden = false;
+    tickDate(payload.until);
+  });
+  socket.on("speeddate:continue-result", (payload) => {
+    ui.dateContinue.hidden = true;
+    if (payload.keep) openDm(payload.partnerId);
+    else notify("Geen verder chat — tot een volgende keer.");
+  });
   socket.on("speeddate:ended", (payload) => {
     const reasons: Record<string, string> = {
       time: "De drie minuten zijn om. Je mag aan tafel verder praten.",
@@ -484,7 +530,26 @@ function connectSocket() {
   });
 }
 
+function isNearbyPlayer(p: PublicPlayer) {
+  const me = state.me;
+  if (!me) return false;
+  if (me.talkCircleId && p.talkCircleId && me.talkCircleId === p.talkCircleId) return true;
+  return Math.hypot(p.x - me.x, p.y - me.y) <= 420;
+}
+
+function showOnboard(text: string) {
+  ui.onboard.hidden = false;
+  ui.onboard.textContent = text;
+  ui.onboard.onclick = () => {
+    ui.onboard.hidden = true;
+  };
+  window.setTimeout(() => {
+    ui.onboard.hidden = true;
+  }, 12000);
+}
+
 function addChatLine(msg: { from: string; firstName: string; text: string; at: number; scope?: string }) {
+  if (state.blocked.has(msg.from) && msg.from !== state.me?.id) return;
   const mine = msg.from === state.me?.id;
   const el = document.createElement("div");
   el.className = "chat-msg" + (mine ? " me" : "");
@@ -573,9 +638,18 @@ function renderOnline() {
   });
 }
 
+function openReport(id: string) {
+  const p = state.players.get(id);
+  state.reportTarget = id;
+  $("report-who").textContent = p ? `Over ${fullName(p)}` : "Meld bij de host";
+  $("modal-report").classList.add("open");
+}
+
 function openProfile(id: string) {
   const p = state.players.get(id);
   if (!p) return;
+  state.profileId = id;
+  ui.profIceText.hidden = true;
   ($("prof-avi") as HTMLImageElement).src = p.avatarUrl;
   $("prof-name").textContent = fullName(p);
   $("prof-status").textContent = statusLabel(p);
@@ -591,6 +665,17 @@ function openProfile(id: string) {
   $("prof-dm").onclick = () => {
     $("modal-profile").classList.remove("open");
     openDm(p.id);
+  };
+  $("prof-wave").onclick = () => state.socket?.emit("wave", "👋");
+  $("prof-ice").onclick = () => state.socket?.emit("ice:say", { source: "profile", otherId: p.id });
+  $("prof-block").textContent = state.blocked.has(id) ? "Deblokkeer" : "Blokkeer";
+  $("prof-block").onclick = () => {
+    if (state.blocked.has(p.id)) state.socket?.emit("unblock", p.id);
+    else state.socket?.emit("block", p.id);
+  };
+  $("prof-report").onclick = () => {
+    $("modal-profile").classList.remove("open");
+    openReport(p.id);
   };
   $("modal-profile").classList.add("open");
 }
@@ -619,6 +704,7 @@ function renderDm() {
 }
 
 function onDm(msg: DirectMessage) {
+  if (state.blocked.has(msg.from) && msg.from !== state.me?.id) return;
   const other = msg.from === state.me?.id ? msg.to : msg.from;
   if (!state.dms.has(other)) state.dms.set(other, []);
   state.dms.get(other)!.push(msg);
@@ -777,6 +863,40 @@ $("date-join").addEventListener("click", () =>
 $("date-leave").addEventListener("click", () => state.socket?.emit("speeddate:leave"));
 $("date-hud-leave").addEventListener("click", () => state.socket?.emit("speeddate:leave"));
 $("profile-close").addEventListener("click", () => $("modal-profile").classList.remove("open"));
+$("date-yes").addEventListener("click", () => state.socket?.emit("speeddate:continue", { yes: true }));
+$("date-no").addEventListener("click", () => state.socket?.emit("speeddate:continue", { yes: false }));
+$("pause-extend").addEventListener("click", () => {
+  state.socket?.emit("pause:extend");
+  $("modal-pause").classList.remove("open");
+});
+$("pause-hang").addEventListener("click", () => {
+  state.socket?.emit("pause:hang");
+  ($("status-select") as HTMLSelectElement).value = "kennismaken";
+  $("modal-pause").classList.remove("open");
+});
+$("pause-study").addEventListener("click", () => {
+  state.socket?.emit("status", { status: "studeren" });
+  $("modal-pause").classList.remove("open");
+});
+$("dm-block").addEventListener("click", () => {
+  if (state.dmTarget) state.socket?.emit("block", state.dmTarget);
+});
+$("dm-report").addEventListener("click", () => {
+  if (state.dmTarget) openReport(state.dmTarget);
+});
+$("report-close").addEventListener("click", () => $("modal-report").classList.remove("open"));
+$("modal-report").querySelectorAll("[data-reason]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.socket?.emit("report", { id: state.reportTarget || "", reason: (btn as HTMLElement).dataset.reason || "Anders" });
+    $("modal-report").classList.remove("open");
+  });
+});
+document.querySelectorAll("#wave-bar [data-wave]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const emoji = (btn as HTMLElement).dataset.wave as WaveEmoji;
+    if (emoji) state.socket?.emit("wave", emoji);
+  });
+});
 
 function tickDate(endsAt: number) {
   clearInterval(state.dateTimer);

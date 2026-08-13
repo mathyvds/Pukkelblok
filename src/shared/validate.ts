@@ -3,10 +3,14 @@ import {
   MAX_AVATAR_BYTES,
   MAX_CHAT,
   MAX_ONLINE,
+  REPORT_REASONS,
   STUDY_MINUTES,
+  WAVES,
   statuses,
+  type ReportReason,
   type Status,
   type StudyMinutes,
+  type WaveEmoji,
 } from "./protocol";
 
 export { MAX_ONLINE, MAX_AVATAR_BYTES, MAX_CHAT };
@@ -69,6 +73,21 @@ export function validateStatusText(value: unknown) {
 export function validateStudyMinutes(value: unknown): StudyMinutes | null {
   const n = Number(value);
   return STUDY_MINUTES.includes(n as StudyMinutes) ? (n as StudyMinutes) : null;
+}
+
+export function validateWave(emoji: unknown): { emoji: WaveEmoji } | Fail {
+  if (typeof emoji === "string" && (WAVES as readonly string[]).includes(emoji)) {
+    return { emoji: emoji as WaveEmoji };
+  }
+  return { error: "Onbekende zwaai." };
+}
+
+export function validateReportReason(reason: unknown): { reason: ReportReason } | Fail {
+  const value = String(reason || "").trim();
+  if ((REPORT_REASONS as readonly string[]).includes(value)) {
+    return { reason: value as ReportReason };
+  }
+  return { error: "Kies een reden om te melden." };
 }
 
 export function validateChat(text: unknown): ChatOk | Fail {

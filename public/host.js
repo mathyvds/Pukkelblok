@@ -19,6 +19,28 @@
     document.getElementById("s-desks").textContent = state.desks.filter((d) => d.taken).length + "/" + state.desks.length;
     document.getElementById("s-wait").textContent = String(state.waiting);
     document.getElementById("s-dates").textContent = String(state.dates);
+    const zones = state.zones || [];
+    const zoneCount = (id) => zones.find((z) => z.id === id)?.count ?? 0;
+    document.getElementById("s-study").textContent = String(zoneCount("study"));
+    document.getElementById("s-lounge").textContent = String(zoneCount("lounge"));
+    document.getElementById("s-bar").textContent = String(zoneCount("coffee"));
+    if (state.board) {
+      document.getElementById("board-title").textContent = state.board.moment || state.board.title;
+      document.getElementById("board-sub").textContent = state.board.subtitle || "";
+      document.querySelectorAll("#day-card [data-slot]").forEach((btn) => {
+        btn.classList.toggle("on", btn.dataset.slot === state.board.slotId);
+      });
+    }
+    document.getElementById("reports").innerHTML = (state.reports || [])
+      .map(
+        (r) => `<tr>
+          <td>${esc(r.fromName)}</td>
+          <td>${esc(r.aboutName)}</td>
+          <td>${esc(r.reason)}</td>
+          <td><button class="kick" data-id="${r.aboutId}">Zet eruit</button></td>
+        </tr>`
+      )
+      .join("");
     document.getElementById("desks").innerHTML = state.desks
       .map(
         (d) =>
@@ -128,6 +150,32 @@
   }
   document.getElementById("quiet-25").addEventListener("click", () => quietRound(25));
   document.getElementById("quiet-50").addEventListener("click", () => quietRound(50));
+  document.getElementById("day-card").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-slot]");
+    if (!btn) return;
+    try {
+      const next = await api("/api/host/board", {
+        method: "POST",
+        body: JSON.stringify({ slotId: btn.dataset.slot }),
+      });
+      render(next.state);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+  document.getElementById("moments").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-moment]");
+    if (!btn) return;
+    try {
+      const next = await api("/api/host/moment", {
+        method: "POST",
+        body: JSON.stringify({ id: btn.dataset.moment === "clear" ? null : btn.dataset.moment }),
+      });
+      render(next.state);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   boot();
 })();

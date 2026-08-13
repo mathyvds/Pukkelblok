@@ -1,4 +1,4 @@
-import type { PlayerMove, PublicPlayer, PublicWorld, Status } from "../shared/protocol";
+import type { InfoBoard, PlayerMove, PublicPlayer, PublicWorld, Status } from "../shared/protocol";
 import { clampMove, inZone, solidsOf, type World } from "../shared/world";
 import { drawHomeNest, drawStaticTent, drawStringLights, drawWarmSpots } from "./tent-art";
 
@@ -16,6 +16,7 @@ export type WorldHandlers = {
   onSitSpot?: (spotId: string) => void;
   onStand?: () => void;
   onClickPerson?: (id: string) => void;
+  onBarIce?: () => void;
 };
 
 type TouchDir = "up" | "down" | "left" | "right";
@@ -52,6 +53,7 @@ const state = {
   handlers: {} as WorldHandlers,
   mounted: false,
   minimap: null as HTMLCanvasElement | null,
+  board: null as InfoBoard | null,
 };
 
 export function mount(opts: {
@@ -89,8 +91,15 @@ export function mount(opts: {
   }
 }
 
+export function setBoard(board: InfoBoard) {
+  state.board = board;
+  if (state.world) state.world.board = board;
+  state.cache = null;
+}
+
 export function setWorld(world: PublicWorld) {
   state.world = { ...world, solids: solidsOf(world) };
+  if (world.board) state.board = world.board;
   state.cache = null;
   if (state.layer) {
     state.layer.style.width = `${world.width}px`;
@@ -259,6 +268,10 @@ function onClick(e: MouseEvent) {
     state.handlers.onSit?.(desk.id);
     state.target = null;
     state.followId = null;
+    return;
+  }
+  if (state.world && inZone(state.world, worldPt.x, worldPt.y, "bar")) {
+    state.handlers.onBarIce?.();
     return;
   }
   const seat = hitSeat(worldPt.x, worldPt.y);
@@ -500,6 +513,26 @@ function draw() {
     ctx.fillText(n ? `Cirkel  ${n}/${circle.max}` : "Schuif aan", circle.x, circle.y - 8);
     ctx.textAlign = "left";
   }
+  for (const corner of w.schoolCorners || []) {
+    ctx.fillStyle = "rgba(233, 30, 140, 0.12)";
+    ctx.fillRect(corner.x, corner.y, corner.w, corner.h);
+    ctx.fillStyle = "#ffe6a8";
+    ctx.font = "800 16px Geist, sans-serif";
+    ctx.fillText(corner.label, corner.x + 14, corner.y + 28);
+    ctx.font = "600 11px Geist, sans-serif";
+    ctx.fillStyle = "#c8b48a";
+    ctx.fillText("herkenningshoek", corner.x + 14, corner.y + 46);
+  }
+  const board = state.board || w.board;
+  const info = w.zones.find((z) => z.id === "info");
+  if (board && info) {
+    ctx.fillStyle = "#111";
+    ctx.font = "800 18px Geist, sans-serif";
+    ctx.fillText(board.moment || board.title, info.x + 40, info.y + 58);
+    ctx.font = "600 13px Geist, sans-serif";
+    ctx.fillStyle = "#3a2e22";
+    ctx.fillText(board.subtitle, info.x + 40, info.y + 88);
+  }
   ctx.restore();
   state.layer.style.transform = `translate(${-state.camX}px, ${-state.camY}px)`;
   paintMinimap();
@@ -604,7 +637,10 @@ function syncDom() {
     const bubble = el.querySelector(".bubble")!;
     const self = me();
     const hideTalk = silent || self?.status === "studeren";
-    if (!hideTalk && p.typing) {
+    if (!hideTalk && p.waving) {
+      bubble.textContent = p.waving;
+      bubble.className = "bubble on wave";
+    } else if (!hideTalk && p.typing) {
       bubble.textContent = "…";
       bubble.className = "bubble on typing";
     } else if (!hideTalk && p.bubble) {

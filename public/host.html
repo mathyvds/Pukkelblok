@@ -61,6 +61,10 @@
     .host h1, .pin-card h1{font-family:var(--display);font-size:3rem;letter-spacing:.04em;margin:0}
     .host h1 span{color:var(--yellow)}
     .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:1rem 0}
+    .day-card,.moments{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 1rem}
+    .day-card button.on,.moments button.on{border-color:var(--yellow);color:var(--yellow)}
+    .board-preview{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.8rem 1rem;margin:0 0 1rem}
+    .board-preview b{color:var(--yellow)}
     .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.8rem;text-align:center}
     .stat b{display:block;font-size:1.4rem;color:var(--yellow)}
     .desk-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;margin:1rem 0}
@@ -103,6 +107,29 @@
       <div class="stat"><b id="s-desks">0</b>bureaus bezet</div>
       <div class="stat"><b id="s-wait">0</b>speeddate-rij</div>
       <div class="stat"><b id="s-dates">0</b>dates nu</div>
+      <div class="stat"><b id="s-study">0</b>blokzone</div>
+      <div class="stat"><b id="s-lounge">0</b>lounge</div>
+      <div class="stat"><b id="s-bar">0</b>koffiehoek</div>
+    </div>
+    <div class="board-preview">
+      <b id="board-title">Dagkaart</b>
+      <div id="board-sub">—</div>
+    </div>
+    <h2>Dagkaart</h2>
+    <div class="day-card" id="day-card">
+      <button class="btn-hud" type="button" data-slot="stil">09:00 stil</button>
+      <button class="btn-hud" type="button" data-slot="koffie">11:00 koffie</button>
+      <button class="btn-hud" type="button" data-slot="lunch">12:30 lunch</button>
+      <button class="btn-hud" type="button" data-slot="backstage">14:00 backstage</button>
+      <button class="btn-hud" type="button" data-slot="speeddate">16:30 speeddate</button>
+      <button class="btn-hud" type="button" data-slot="einde">17:30 afronden</button>
+    </div>
+    <h2>Momenten</h2>
+    <div class="moments" id="moments">
+      <button class="btn-hud" type="button" data-moment="stand">Iedereen rechtstaan</button>
+      <button class="btn-hud" type="button" data-moment="speeddate-open">Speeddate-hoek open</button>
+      <button class="btn-hud" type="button" data-moment="silence">Stilte tot 16u</button>
+      <button class="btn-hud" type="button" data-moment="clear">Wis moment</button>
     </div>
     <form class="announce" id="announce-form">
       <input id="announce-in" maxlength="200" placeholder="Omroep naar de hele tent…"/>
@@ -114,6 +141,11 @@
     </div>
     <h2>Bureaus 1–100</h2>
     <div class="desk-grid" id="desks"></div>
+    <h2>Meldingen</h2>
+    <table>
+      <thead><tr><th>Van</th><th>Over</th><th>Reden</th><th></th></tr></thead>
+      <tbody id="reports"></tbody>
+    </table>
     <h2>Aanwezig</h2>
     <table>
       <thead><tr><th>Naam</th><th>Vak</th><th>Status</th><th>Bureau</th><th></th></tr></thead>

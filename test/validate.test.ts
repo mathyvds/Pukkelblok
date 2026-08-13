@@ -8,8 +8,10 @@ import {
   sniffImageMime,
   validateStatusText,
   validateStudyMinutes,
+  validateWave,
+  validateReportReason,
 } from "../src/shared/validate";
-import { createWorld, clampMove, deskById, inZone, PLAYER_R } from "../src/shared/world";
+import { createWorld, clampMove, deskById, inZone, onboardText, schoolCornerAt, ICEBREAKERS, PLAYER_R } from "../src/shared/world";
 import { createStore } from "../src/server/store";
 import { cookieSecure, createRateLimit, requireCookieSecret, timingSafeEqualString } from "../src/server/security";
 import { DESK_COUNT, joinSchema } from "../src/shared/protocol";
@@ -274,9 +276,10 @@ test("statusText blijft staan als pauze afloopt", () => {
   store.setStatus(a.user.id, "pauze", "arrest");
   assert.equal(a.user.statusText, "arrest");
   a.user.pauseUntil = Date.now() - 1;
-  const pauseEnded = store.tickPauses();
+  const pauseEnded = store.nudgePauses();
   assert.equal(pauseEnded.length, 1);
-  assert.equal(pauseEnded[0].status, "studeren");
+  assert.equal(pauseEnded[0].status, "pauze");
+  assert.equal(pauseEnded[0].pauseUntil, 0);
   assert.equal(pauseEnded[0].statusText, "arrest");
 });
 
@@ -478,6 +481,7 @@ test("publicUser lekt geen type-draft", () => {
   const store = createStore(createWorld());
   const a = store.join(guest({ deskId: 1 }));
   if (!("user" in a)) throw new Error("expected user");
+  store.setStatus(a.user.id, "kennismaken");
   a.user.draft = "geheim bericht dat ik nog niet verstuur";
   const pub = store.publicUser(a.user);
   assert.equal("draft" in pub, false);
@@ -556,4 +560,107 @@ test("host-pin vergelijking is constant-time en rate-limit sluit af", () => {
   assert.equal(limit.allow("ip"), true);
   assert.equal(limit.allow("ip"), true);
   assert.equal(limit.allow("ip"), false);
+});
+
+test("zwaai is een emoji, geen chatbericht", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 21 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.setStatus(a.user.id, "kennismaken");
+  const waved = store.wave(a.user.id, "👋");
+  assert.ok("user" in waved);
+  assert.equal(waved.user.bubble, "👋");
+  assert.equal(waved.user.waving, "👋");
+  assert.equal(store.chatHistory().length, 0);
+  assert.ok("error" in validateWave("🔥"));
+  const again = store.wave(a.user.id, "☕");
+  assert.ok("error" in again);
+});
+
+test("blokkeren stopt DM en speeddate", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } }));
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.setStatus(a.user.id, "kennismaken");
+  store.setStatus(b.user.id, "kennismaken");
+  store.block(a.user.id, b.user.id);
+  assert.ok("error" in store.addDm(a.user, b.user.id, "nee"));
+  store.joinQueue(a.user.id);
+  store.joinQueue(b.user.id);
+  const { started } = store.matchDates();
+  assert.equal(started.length, 0);
+  assert.ok("reason" in validateReportReason("Lastigvallen"));
+  assert.ok("error" in validateReportReason("spam"));
+});
+
+test("pauze loopt af zonder teleport; verlengen of kennismaken", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 22 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.stand(a.user.id);
+  const loungeX = a.user.x;
+  a.user.pauseUntil = Date.now() - 1;
+  const nudged = store.nudgePauses();
+  assert.equal(nudged.length, 1);
+  assert.equal(a.user.status, "pauze");
+  assert.equal(a.user.pauseUntil, 0);
+  assert.equal(a.user.x, loungeX);
+  store.extendPause(a.user.id);
+  assert.ok((a.user.pauseUntil || 0) > Date.now());
+  store.hangOut(a.user.id);
+  assert.equal(a.user.status, "kennismaken");
+  assert.equal(a.user.x, loungeX);
+});
+
+test("speeddate verder chatten: ja/ja houdt DM, nee wist hem", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } }));
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.setStatus(a.user.id, "kennismaken");
+  store.setStatus(b.user.id, "kennismaken");
+  store.joinQueue(a.user.id);
+  store.joinQueue(b.user.id);
+  const t0 = Date.now();
+  const { started } = store.matchDates(t0);
+  assert.equal(started.length, 1);
+  store.addDm(a.user, b.user.id, "bewaar dit");
+  store.matchDates(t0 + 3 * 60 * 1000);
+  const pending = store.answerContinue(a.user.id, true);
+  assert.ok("pending" in pending);
+  const both = store.answerContinue(b.user.id, true);
+  assert.ok("keep" in both && both.keep);
+  assert.equal(store.getDms(a.user.id, b.user.id).length, 1);
+});
+
+test("ijsbrekers werken aan de bar en op het profiel", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 23 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.setStatus(a.user.id, "kennismaken");
+  const bar = store.sayIce(a.user.id, "bar");
+  assert.ok("text" in bar);
+  assert.ok(ICEBREAKERS.includes(bar.text));
+  assert.equal(a.user.bubble, bar.text);
+});
+
+test("dagkaart, schoolhoekjes en onboarding", () => {
+  const world = createWorld();
+  assert.equal(world.schoolCorners.length, 4);
+  assert.equal(schoolCornerAt(world, 80, 1700)?.label, "PXL");
+  const store = createStore(world);
+  const board = store.setBoard({ slotId: "koffie" });
+  assert.equal(board.title, "Koffie");
+  const moment = store.setBoard({ moment: "Iedereen even rechtstaan" });
+  assert.equal(moment.moment, "Iedereen even rechtstaan");
+  const a = store.join(guest({ deskId: 24 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  assert.ok(store.zoneOccupancy().some((z) => z.id === "study"));
+  assert.match(onboardText(42), /bureau 42/);
 });

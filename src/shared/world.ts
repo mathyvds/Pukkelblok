@@ -1,4 +1,17 @@
-import type { Desk, PublicWorld, Seat, SpeedTable, TalkCircle, WorldBlocker, Zone } from "./protocol";
+import type {
+  DaySlot,
+  DaySlotId,
+  Desk,
+  InfoBoard,
+  PublicWorld,
+  School,
+  SchoolCorner,
+  Seat,
+  SpeedTable,
+  TalkCircle,
+  WorldBlocker,
+  Zone,
+} from "./protocol";
 import { CIRCLE_MAX, DESK_COUNT, PAUSE_MS, PROXIMITY } from "./protocol";
 
 export const WORLD_W = 3200;
@@ -8,6 +21,44 @@ export const MAX_SPEED = 420;
 export const DESK_COLS = 10;
 export const DESK_ROWS = Math.ceil(DESK_COUNT / DESK_COLS);
 export { PROXIMITY, PAUSE_MS };
+
+export const DAY_SLOTS: DaySlot[] = [
+  { id: "stil", time: "09:00", title: "Stil blokken", subtitle: "Koppen bij de boeken." },
+  { id: "koffie", time: "11:00", title: "Koffie", subtitle: "Even rechtstaan, haal een kop." },
+  { id: "lunch", time: "12:30", title: "Lunch / friet", subtitle: "De tent mag even lawaai maken." },
+  { id: "backstage", time: "14:00", title: "Backstage", subtitle: "Terug naar je bureau." },
+  { id: "speeddate", time: "16:30", title: "Speeddate", subtitle: "Rechts in de tent, drie minuten." },
+  { id: "einde", time: "17:30", title: "Afronden", subtitle: "Pak je spullen, tot op PKP." },
+];
+
+export const HOST_MOMENT_COPY = {
+  stand: { moment: "Iedereen even rechtstaan", announce: "Iedereen even rechtstaan — stretch, water, en terug." },
+  "speeddate-open": { moment: "Speeddate-hoek is open", announce: "De speeddate-hoek is open. Rechts in de tent, drie minuten." },
+  silence: { moment: "Stilte tot 16u", announce: "Stilte tot 16u. Blokken = blijven zitten." },
+} as const;
+
+export function slotForHour(date = new Date()): DaySlotId {
+  const hour = date.getHours() + date.getMinutes() / 60;
+  if (hour < 11) return "stil";
+  if (hour < 12.5) return "koffie";
+  if (hour < 14) return "lunch";
+  if (hour < 16.5) return "backstage";
+  if (hour < 17.5) return "speeddate";
+  return "einde";
+}
+
+export function boardFromSlot(slotId: DaySlotId, moment: string | null = null): InfoBoard {
+  const slot = DAY_SLOTS.find((s) => s.id === slotId) || DAY_SLOTS[0];
+  return { slotId: slot.id, title: slot.title, subtitle: slot.subtitle, moment };
+}
+
+export function defaultBoard(date = new Date()): InfoBoard {
+  return boardFromSlot(slotForHour(date));
+}
+
+export function onboardText(deskId: number) {
+  return `Je zit aan bureau ${deskId}. Blokken = blijven zitten. Pauze = lounge of koffie. Kennismaken = rondlopen.`;
+}
 
 export const ICEBREAKERS = [
   "Wat studeer je, en waar?",
@@ -115,6 +166,20 @@ function makeSeats(circles: TalkCircle[]): Seat[] {
   return seats;
 }
 
+function makeSchoolCorners(): SchoolCorner[] {
+  const specs: { id: SchoolCorner["id"]; school: School; label: string; y: number }[] = [
+    { id: "corner-pxl", school: "PXL", label: "PXL", y: 1680 },
+    { id: "corner-ucll", school: "UCLL", label: "UCLL", y: 1840 },
+    { id: "corner-uhasselt", school: "Universiteit Hasselt", label: "UHasselt", y: 2000 },
+    { id: "corner-andere", school: "Andere", label: "Andere", y: 2160 },
+  ];
+  return specs.map((s) => ({ ...s, x: 56, w: 250, h: 140 }));
+}
+
+export function schoolCornerAt(world: Pick<PublicWorld, "schoolCorners">, x: number, y: number) {
+  return (world.schoolCorners || []).find((c) => x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) || null;
+}
+
 function makeBlockers(): WorldBlocker[] {
   return [
     { x: 86, y: 86, w: 708, h: 64 },
@@ -152,6 +217,8 @@ export function createWorld(): World {
   const talkCircles = makeTalkCircles();
   const seats = makeSeats(talkCircles);
   const blockers = makeBlockers();
+  const schoolCorners = makeSchoolCorners();
+  const board = defaultBoard();
   const zones: Zone[] = [
     { id: "bar", name: "Koffiebar", x: 80, y: 90, w: 720, h: 70 },
     { id: "coffee", name: "Koffiehoek", x: 50, y: 155, w: 780, h: 185 },
@@ -171,6 +238,9 @@ export function createWorld(): World {
     zones,
     seats,
     blockers,
+    schoolCorners,
+    daySlots: DAY_SLOTS,
+    board,
     proximity: PROXIMITY,
     pauseMs: PAUSE_MS,
   };
@@ -233,6 +303,9 @@ export function publicWorld(world: World): PublicWorld {
     zones: world.zones,
     seats: world.seats,
     blockers: world.blockers,
+    schoolCorners: world.schoolCorners,
+    daySlots: world.daySlots,
+    board: world.board,
     proximity: world.proximity,
     pauseMs: world.pauseMs,
   };
