@@ -981,11 +981,13 @@ kbd {
 }
 
 #bot-hud {
-  height: 44px;
+  min-height: 44px;
+  height: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 14px;
+  gap: 8px;
+  padding: 8px 14px;
   font-size: 0.75rem;
   color: var(--color-muted);
   border-top: 1px solid #3a2a22;
@@ -1170,6 +1172,54 @@ kbd {
   text-align: center;
   cursor: pointer;
 }
+#reconnect-banner {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9;
+  background: #111;
+  color: var(--color-pkp);
+  border: 2px solid var(--color-pkp);
+  font-weight: 800;
+  border-radius: 12px;
+  padding: 0.55rem 1rem;
+  text-align: center;
+}
+body.panel-collapsed #side-panel {
+  display: none;
+}
+.dm-thread-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+.dm-thread-btn .u-name {
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+.dm-thread-btn .u-stat {
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.dm-thread-btn.unread .u-name {
+  color: var(--color-pkp);
+}
+#dm-inbox {
+  flex: 1;
+  overflow: auto;
+}
 .btn-tiny {
   background: #1a1a1a;
   color: #fff;
@@ -1199,6 +1249,12 @@ kbd {
   #game-main {
     flex-direction: column;
   }
+  body.panel-collapsed #side-panel {
+    display: none;
+  }
+  body.panel-collapsed #game-main {
+    flex-direction: column;
+  }
   #notifs {
     right: 12px;
   }
@@ -1212,5 +1268,21 @@ kbd {
     flex-wrap: wrap;
     height: auto;
     padding: 8px;
+  }
+  #bot-hud {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  #touch-pad button {
+    width: 56px;
+    height: 56px;
+    font-size: 1.15rem;
+  }
+  .wave-bar button {
+    width: 44px;
+    height: 44px;
+    font-size: 1.15rem;
   }
 }
