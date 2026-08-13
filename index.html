@@ -14,21 +14,20 @@
       <div class="tent-drape"></div>
     </div>
     <div class="hero">
-      <p class="eyebrow">PKP26 · Club-tent · dag vóór het festival · Kiewit</p>
+      <p class="eyebrow">PKP26 · Club-tent · één namiddag · Kiewit</p>
       <h1>Pukkel<span>blok</span></h1>
       <p class="lede">
-        De tent staat al. Morgen begint Pukkelpop. Vanavond blok je in de Club-tent:
-        koffie, loungebanken, een leeg podium en string lights die al knipperen.
-        Stap binnen om andere studenten te ontmoeten — zonder e-mail, met een cookie en je naam.
+        Je bureau in de Club-tent. Andere studenten. Chat als je even pauzeert.
+        Geen e-mail — alleen je naam en het nummer op je tafel.
       </p>
       <div class="hero-actions">
-        <button class="btn-primary" id="btn-enter">Kom de tent in</button>
+        <button class="btn-primary" id="btn-enter">Kom binnen</button>
       </div>
       <ul class="hero-points">
-        <li>Tot 100 studenten, 100 bureaus</li>
-        <li>Koffiebar, lounge, dagprogramma</li>
-        <li>Chat + privéberichten</li>
-        <li>Speeddate om 16:30</li>
+        <li>Bureau 1–100</li>
+        <li>Geen account</li>
+        <li>Lounge &amp; koffie</li>
+        <li>Speeddate</li>
       </ul>
       <a class="pkp-link" href="https://www.pukkelpop.be/nl/" target="_blank" rel="noreferrer">pukkelpop.be</a>
       <section class="house-rules" id="house-rules">
@@ -43,39 +42,57 @@
   </div>
 
   <div id="screen-join" class="screen">
-    <form class="join-card" id="join-form">
+    <form class="join-card" id="join-form" novalidate>
       <button type="button" class="text-back" id="btn-back">← Terug</button>
-      <h2>Maak je gastaccount</h2>
-      <p class="join-note">Geen e-mail, geen wachtwoord. We onthouden je via een cookie op dit apparaat.</p>
-      <label>Voornaam
-        <input id="first-name" name="firstName" type="text" autocomplete="given-name" maxlength="24" required placeholder="Lisa"/>
-      </label>
-      <label>Familienaam
-        <input id="last-name" name="lastName" type="text" autocomplete="family-name" maxlength="40" required placeholder="Peeters"/>
-      </label>
-      <label>Leeftijd
-        <input id="age" name="age" type="number" min="15" max="80" required placeholder="21"/>
-      </label>
-      <label>School
-        <select id="school" name="school" required>
-          <option value="" disabled selected>Kies je school…</option>
-          <option value="PXL">PXL</option>
-          <option value="UCLL">UCLL</option>
-          <option value="Universiteit Hasselt">Universiteit Hasselt</option>
-          <option value="Andere">Andere</option>
-        </select>
-      </label>
-      <label id="school-other-wrap" hidden>Andere school
-        <input id="school-other" type="text" maxlength="40" placeholder="Naam van je hogeschool of uni"/>
-      </label>
-      <label>Studierichting
-        <input id="program" name="program" type="text" maxlength="60" required placeholder="bv. Verpleegkunde, Informatica"/>
-      </label>
-      <p class="label">Jouw bureau in de tent</p>
-      <p class="mini">Kies het nummer dat op je echte tafel staat. Je start daar in studeermodus.</p>
-      <div class="desk-grid" id="desk-grid"></div>
-      <input type="hidden" id="desk-id" name="deskId" required/>
-      <div class="avatar-block">
+      <div class="join-progress" aria-hidden="true">
+        <span class="jp on" data-dot="1"></span>
+        <span class="jp" data-dot="2"></span>
+      </div>
+
+      <div class="join-step on" data-step="1">
+        <h2>Wie ben je?</h2>
+        <p class="join-note">Geen e-mail, geen wachtwoord. We onthouden je op dit apparaat.</p>
+        <label>Voornaam
+          <input id="first-name" name="firstName" type="text" autocomplete="given-name" maxlength="24" placeholder="Lisa"/>
+        </label>
+        <label>Familienaam
+          <input id="last-name" name="lastName" type="text" autocomplete="family-name" maxlength="40" placeholder="Peeters"/>
+        </label>
+        <p class="label">Nummer op je tafel</p>
+        <p class="mini desk-mini">Typ het nummer dat op je echte bureau staat. Je start daar in stille modus.</p>
+        <div class="desk-type">
+          <input id="desk-number" type="number" min="1" max="100" inputmode="numeric" autocomplete="off" placeholder="47" aria-label="Bureaunummer"/>
+          <p id="desk-status" class="desk-status">Bureau 1–100</p>
+        </div>
+        <details class="desk-more" id="desk-more">
+          <summary>Of kies in het overzicht</summary>
+          <div class="desk-grid" id="desk-grid"></div>
+        </details>
+        <p class="form-error" id="join-error-1"></p>
+        <button type="button" class="btn-primary wide" id="join-next">Volgende</button>
+      </div>
+
+      <div class="join-step" data-step="2">
+        <h2>Zodat anderen je herkennen</h2>
+        <p class="join-note">School en een look. Daarna zit je meteen aan je bureau.</p>
+        <label>Leeftijd
+          <input id="age" name="age" type="number" min="15" max="80" placeholder="21"/>
+        </label>
+        <label>School
+          <select id="school" name="school">
+            <option value="" disabled selected>Kies je school…</option>
+            <option value="PXL">PXL</option>
+            <option value="UCLL">UCLL</option>
+            <option value="Universiteit Hasselt">Universiteit Hasselt</option>
+            <option value="Andere">Andere</option>
+          </select>
+        </label>
+        <label id="school-other-wrap" hidden>Andere school
+          <input id="school-other" type="text" maxlength="40" placeholder="Naam van je hogeschool of uni"/>
+        </label>
+        <label>Studierichting
+          <input id="program" name="program" type="text" maxlength="60" placeholder="bv. Verpleegkunde, Informatica"/>
+        </label>
         <p class="label">Sfeer van jouw bureau</p>
         <p class="mini">Zichtbaar op jouw plek: laptop, stapel boeken of een festivalhoekje.</p>
         <div class="desk-style-row" id="desk-style-row">
@@ -83,26 +100,29 @@
           <button type="button" class="desk-style" data-style="boeken">Boeken</button>
           <button type="button" class="desk-style" data-style="festival">Festival</button>
         </div>
-        <p class="label">Jouw avatar</p>
-        <div class="avatar-preview-wrap">
-          <img id="avatar-preview" alt="Voorbeeld avatar" src="/avatars/1.svg"/>
+        <div class="avatar-block">
+          <p class="label">Jouw look</p>
+          <div class="avatar-preview-wrap">
+            <img id="avatar-preview" alt="Voorbeeld avatar" src="/avatars/1.svg"/>
+          </div>
+          <p class="mini">Kies een look — of neem een foto.</p>
+          <div class="preset-row" id="preset-row"></div>
+          <div class="avatar-actions">
+            <button type="button" class="btn-ghost" id="btn-camera">Foto nemen</button>
+            <label class="btn-ghost file-btn">Uploaden
+              <input id="avatar-file" type="file" accept="image/*" hidden/>
+            </label>
+          </div>
         </div>
-        <div class="avatar-actions">
-          <button type="button" class="btn-ghost" id="btn-camera">Foto nemen</button>
-          <label class="btn-ghost file-btn">Uploaden
-            <input id="avatar-file" type="file" accept="image/*" hidden/>
-          </label>
+        <video id="cam" playsinline muted hidden></video>
+        <div class="cam-actions" id="cam-actions" hidden>
+          <button type="button" class="btn-primary" id="btn-snap">Neem foto</button>
+          <button type="button" class="btn-ghost" id="btn-cam-cancel">Annuleer</button>
         </div>
-        <p class="mini">Looks zijn standaard. Foto is optioneel — alleen jij, geen screenshots van anderen.</p>
-        <div class="preset-row" id="preset-row"></div>
+        <p class="form-error" id="join-error"></p>
+        <button type="submit" class="btn-primary wide" id="btn-join">Zit aan je bureau</button>
       </div>
-      <video id="cam" playsinline muted hidden></video>
-      <div class="cam-actions" id="cam-actions" hidden>
-        <button type="button" class="btn-primary" id="btn-snap">Neem foto</button>
-        <button type="button" class="btn-ghost" id="btn-cam-cancel">Annuleer</button>
-      </div>
-      <p class="form-error" id="join-error"></p>
-      <button type="submit" class="btn-primary wide" id="btn-join">Stap naar binnen</button>
+      <input type="hidden" id="desk-id" name="deskId"/>
     </form>
   </div>
 
@@ -110,23 +130,11 @@
     <header id="top-hud">
       <div class="brand">Pukkel<span>blok</span></div>
       <div class="presence"><span id="online-count">0</span> / <span id="max-count">100</span> in de tent</div>
-      <div class="hud-sep"></div>
       <div class="me-chip" id="me-chip">
         <img id="me-face" alt=""/>
         <span id="me-name"></span>
       </div>
-      <span id="pause-timer" class="pause-timer" hidden>Pauze 10:00</span>
-      <span id="study-timer" class="study-timer" hidden>Blok 50:00</span>
-      <div id="study-mins" class="study-mins" hidden>
-        <button type="button" data-mins="25">25</button>
-        <button type="button" data-mins="50">50</button>
-      </div>
-      <select id="status-select" title="Status">
-        <option value="kennismaken">Klaar om kennis te maken</option>
-        <option value="studeren">Studeren</option>
-        <option value="pauze">Pauze (10 min)</option>
-      </select>
-      <input id="status-text" maxlength="60" autocomplete="off" placeholder="bv. statistiek, arrest, pauze tot 11u" title="Korte status, zichtbaar voor anderen"/>
+      <div class="hud-sep"></div>
       <button class="btn-hud" id="btn-speeddate">Speeddate</button>
       <button class="btn-hud" id="btn-panel" aria-pressed="true" title="Aanwezig-lijst tonen of verbergen">Lijst</button>
       <button class="btn-hud" id="btn-sound" aria-pressed="false" title="Tentgeluid: zeil, koffie, verre crew. Standaard uit.">Geluid uit</button>
@@ -170,6 +178,14 @@
           </div>
           <button data-dir="down">▼</button>
         </div>
+        <div id="coach" hidden>
+          <div class="coach-card">
+            <p class="coach-kicker" id="coach-kicker">1 / 3</p>
+            <h3 id="coach-title"></h3>
+            <p id="coach-body"></p>
+            <button type="button" class="btn-primary wide" id="coach-next">Oké</button>
+          </div>
+        </div>
       </div>
 
       <aside id="side-panel">
@@ -202,11 +218,11 @@
           <form class="chat-input-wrap" id="chat-form">
             <input id="chat-in" maxlength="200" autocomplete="off" placeholder="Zeg iets tegen wie in de buurt is…"/>
             <button type="submit" title="Stuur naar wie dichtbij staat">➤</button>
-            <button type="button" id="chat-shout" title="Roep naar de hele tent (1× per minuut)">📣</button>
+            <button type="button" id="chat-shout" title="Roep naar de hele tent (1× per minuut)">Tent</button>
           </form>
         </div>
         <div class="tab-pane" id="tab-dm">
-          <div id="dm-empty" class="empty">Klik op iemand om een privébericht te sturen.</div>
+          <div id="dm-empty" class="empty">Tik op iemand om een privébericht te sturen.</div>
           <div id="dm-inbox" hidden></div>
           <div id="dm-thread" hidden>
             <div class="dm-head">
@@ -226,8 +242,24 @@
     </div>
 
     <footer id="bot-hud">
-      <span>Studeren = niet storen. WASD = pauze. E = aansluiten of tafel verlaten. Tafels zijn bubbels: alleen zij horen je.</span>
-      <span id="desk-hint"></span>
+      <div class="status-pills" role="group" aria-label="Jouw stand">
+        <button type="button" class="status-pill" data-status="studeren">Blokken</button>
+        <button type="button" class="status-pill" data-status="pauze">Pauze</button>
+        <button type="button" class="status-pill" data-status="kennismaken">Kennismaken</button>
+      </div>
+      <select id="status-select" class="sr-only" tabindex="-1" aria-hidden="true">
+        <option value="studeren">Studeren</option>
+        <option value="pauze">Pauze (10 min)</option>
+        <option value="kennismaken">Klaar om kennis te maken</option>
+      </select>
+      <input id="status-text" maxlength="60" autocomplete="off" placeholder="bv. statistiek, pauze tot 11u" title="Korte status, zichtbaar voor anderen"/>
+      <span id="pause-timer" class="pause-timer" hidden>Pauze 10:00</span>
+      <span id="study-timer" class="study-timer" hidden>Blok 50:00</span>
+      <div id="study-mins" class="study-mins" hidden>
+        <button type="button" data-mins="25">25 min</button>
+        <button type="button" data-mins="50">50 min</button>
+      </div>
+      <span id="desk-hint" class="desk-hint"></span>
       <button type="button" class="btn-tiny" id="btn-home-desk">Naar mijn bureau</button>
     </footer>
   </div>

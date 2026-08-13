@@ -2,7 +2,7 @@
 
 Virtuele tent van **Pukkelblok** op [Pukkelpop](https://www.pukkelpop.be/nl/) (PKP26, 20–23 augustus, Kiewit). Studenten blokken aan hun eigen bureau en stappen even deze wereld in om anderen te ontmoeten.
 
-Geen e-mail. Wel: gastaccount met cookie, foto-avatar, lopen, zitten, chat, privéberichten en speeddate.
+Geen e-mail. Wel: gastaccount met cookie, foto-avatar, lopen, zitten, chat, privéberichten en speeddate. Binnen in twee korte stappen: naam + bureaunummer, daarna school en look.
 
 ## Taal & stack (waarom dit)
 
@@ -42,8 +42,9 @@ Host-dashboard: http://localhost:3000/host
 ## Wat zit erin
 
 - Gastlogin met voornaam, familienaam, leeftijd, school en studierichting (cookie, 7 dagen)
-- **Bureaus 1–100** in tafels van 4, met gangpaden ertussen; je start in studeermodus
-- Tafels zijn **bubbels**: aansluiten of verlaten (E). Alleen tafelgenoten horen je; de rest is uitgevaagd
+- **Bureaus 1–100**: typ het nummer op je tafel (of kies in het overzicht); je start in studeermodus
+- Tafels van 4 met gangpaden; tafels zijn **bubbels** (E = aansluiten of verlaten)
+- Status **Blokken / Pauze / Kennismaken** onderaan; korte coach bij de eerste keer
 - Avatar: foto nemen, uploaden, of een look kiezen + sfeer van jouw bureau
 - Tot 100 studenten, WASD / klik / touch
 - **Proximity-chat** (dichtbij) + tafelbubbel + 📣 hele tent; DMs lekken niet als spraakwolk
