@@ -1,11 +1,16 @@
+import { MAX_AVATAR_BYTES, MAX_CHAT, MAX_ONLINE, statuses, type Status } from "./protocol";
+
+export { MAX_ONLINE, MAX_AVATAR_BYTES, MAX_CHAT };
+
 const NAME_RE = /^[\p{L}]+(?:[ '\-][\p{L}]+)*$/u;
 
-export const MAX_ONLINE = 100;
-export const MAX_AVATAR_BYTES = 100_000;
-export const MAX_CHAT = 200;
-export const MAX_STATUS = 60;
+export type NameOk = { firstName: string; lastName: string };
+export type ChatOk = { text: string };
+export type AvatarPreset = { kind: "preset"; preset: number };
+export type AvatarPhoto = { kind: "photo"; buffer: Buffer; mime: string };
+export type Fail = { error: string };
 
-export function cleanName(value, max) {
+export function cleanName(value: unknown, max: number) {
   return String(value || "")
     .normalize("NFC")
     .replace(/\s+/g, " ")
@@ -13,7 +18,7 @@ export function cleanName(value, max) {
     .slice(0, max);
 }
 
-export function validateNames(firstName, lastName) {
+export function validateNames(firstName: unknown, lastName: unknown): NameOk | Fail {
   const first = cleanName(firstName, 24);
   const last = cleanName(lastName, 40);
   if (first.length < 2) return { error: "Vul je voornaam in (minstens 2 letters)." };
@@ -23,29 +28,27 @@ export function validateNames(firstName, lastName) {
   return { firstName: first, lastName: last };
 }
 
-export function validateStatus(status) {
-  const allowed = new Set(["blokken", "pauze", "kennismaken"]);
-  return allowed.has(status) ? status : "kennismaken";
+export function validateStatus(status: unknown): Status {
+  return statuses.includes(status as Status) ? (status as Status) : "kennismaken";
 }
 
-export function validateChat(text) {
+export function validateChat(text: unknown): ChatOk | Fail {
   const msg = String(text || "").replace(/\s+/g, " ").trim().slice(0, MAX_CHAT);
   if (!msg) return { error: "Leeg bericht." };
   return { text: msg };
 }
 
-export function parseAvatar(payload) {
+export function parseAvatar(payload: unknown): AvatarPreset | AvatarPhoto | Fail {
   if (!payload || typeof payload !== "object") {
     return { error: "Kies of maak een avatar." };
   }
-  if (payload.preset) {
-    const n = Number(payload.preset);
-    if (!Number.isInteger(n) || n < 1 || n > 8) {
-      return { error: "Onbekende avatar." };
-    }
+  const data = payload as { preset?: unknown; dataUrl?: unknown };
+  if (data.preset) {
+    const n = Number(data.preset);
+    if (!Number.isInteger(n) || n < 1 || n > 8) return { error: "Onbekende avatar." };
     return { kind: "preset", preset: n };
   }
-  const dataUrl = String(payload.dataUrl || "");
+  const dataUrl = String(data.dataUrl || "");
   const match = dataUrl.match(/^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=\s]+)$/i);
   if (!match) return { error: "Upload een foto (JPG, PNG of WebP) of kies een look." };
   const buffer = Buffer.from(match[2].replace(/\s/g, ""), "base64");
@@ -57,7 +60,7 @@ export function parseAvatar(payload) {
   return { kind: "photo", buffer, mime: `image/${mime}` };
 }
 
-export function escapeHtml(text) {
+export function escapeHtml(text: string) {
   return String(text)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -66,10 +69,9 @@ export function escapeHtml(text) {
     .replaceAll("'", "&#39;");
 }
 
-export function shirtColor(seed) {
-  const colors = ["#E91E8C", "#F5C518", "#FF6B35", "#2A9D8F", "#7B2CBF", "#E63946", "#457B9D", "#118AB2"];
+export function shirtColor(seed: string) {
+  const colors = ["#FFE600", "#FF3B8B", "#111111", "#FF6B00", "#2A9D8F", "#7B2CBF", "#E63946", "#118AB2"];
   let hash = 0;
-  const s = String(seed || "");
-  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   return colors[hash % colors.length];
 }

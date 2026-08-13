@@ -1,3 +1,5 @@
+import type { Desk, PublicWorld, SpeedTable, Zone } from "./protocol";
+
 export const WORLD_W = 2400;
 export const WORLD_H = 1680;
 export const PLAYER_R = 28;
@@ -14,21 +16,16 @@ export const ICEBREAKERS = [
   "Ken je al iemand in de tent, of ben je solo gekomen?",
 ];
 
-function desk(id, x, y) {
-  return {
-    id,
-    x,
-    y,
-    w: 148,
-    h: 86,
-    seatX: x + 74,
-    seatY: y + 118,
-    label: String(id),
-  };
+export type Box = { x: number; y: number; w: number; h: number; wall?: boolean };
+
+export type World = PublicWorld & { solids: Box[] };
+
+function desk(id: number, x: number, y: number): Desk {
+  return { id, x, y, w: 148, h: 86, seatX: x + 74, seatY: y + 118, label: String(id) };
 }
 
 function makeDesks() {
-  const desks = [];
+  const desks: Desk[] = [];
   let id = 1;
   for (let row = 0; row < 4; row++) {
     for (let col = 0; col < 6; col++) {
@@ -39,25 +36,29 @@ function makeDesks() {
   return desks;
 }
 
-function makeSpeedTables() {
-  const tables = [];
-  for (let i = 0; i < 6; i++) {
-    tables.push({
-      id: `sd-${i + 1}`,
-      x: 2050,
-      y: 380 + i * 175,
-      w: 220,
-      h: 90,
-      label: `Tafel ${i + 1}`,
-    });
-  }
-  return tables;
+function makeSpeedTables(): SpeedTable[] {
+  return Array.from({ length: 6 }, (_, i) => ({
+    id: `sd-${i + 1}`,
+    x: 2050,
+    y: 380 + i * 175,
+    w: 220,
+    h: 90,
+    label: `Tafel ${i + 1}`,
+  }));
 }
 
-export function createWorld() {
+export function createWorld(): World {
   const desks = makeDesks();
   const speedTables = makeSpeedTables();
-  const solids = [
+  const zones: Zone[] = [
+    { id: "bar", name: "Koffiebar", x: 80, y: 90, w: 620, h: 150 },
+    { id: "stage", name: "Club", x: 760, y: 90, w: 880, h: 120 },
+    { id: "info", name: "Info", x: 1700, y: 90, w: 620, h: 150 },
+    { id: "study", name: "Blokzone", x: 320, y: 380, w: 1680, h: 900 },
+    { id: "speeddate", name: "Speeddate", x: 2000, y: 320, w: 340, h: 1120 },
+    { id: "lounge", name: "Lounge", x: 60, y: 320, w: 250, h: 1100 },
+  ];
+  const solids: Box[] = [
     { x: 0, y: 0, w: WORLD_W, h: 70, wall: true },
     { x: 0, y: WORLD_H - 40, w: WORLD_W, h: 40, wall: true },
     { x: 0, y: 0, w: 40, h: WORLD_H, wall: true },
@@ -76,26 +77,17 @@ export function createWorld() {
     desks,
     speedTables,
     solids,
-    zones: [
-      { id: "bar", name: "Koffiebar", x: 80, y: 90, w: 620, h: 150 },
-      { id: "stage", name: "Club-podium", x: 760, y: 90, w: 880, h: 120 },
-      { id: "info", name: "Info", x: 1700, y: 90, w: 620, h: 150 },
-      { id: "study", name: "Blokzone", x: 320, y: 380, w: 1680, h: 900 },
-      { id: "speeddate", name: "Speeddate", x: 2000, y: 320, w: 340, h: 1120 },
-      { id: "lounge", name: "Lounge", x: 60, y: 320, w: 250, h: 1100 },
-    ],
+    zones,
   };
 }
 
-export function circleHitsBox(x, y, r, box) {
+export function circleHitsBox(x: number, y: number, r: number, box: Box) {
   const nx = Math.max(box.x, Math.min(x, box.x + box.w));
   const ny = Math.max(box.y, Math.min(y, box.y + box.h));
-  const dx = x - nx;
-  const dy = y - ny;
-  return dx * dx + dy * dy < r * r;
+  return (x - nx) ** 2 + (y - ny) ** 2 < r * r;
 }
 
-export function clampMove(world, fromX, fromY, toX, toY) {
+export function clampMove(world: World, fromX: number, fromY: number, toX: number, toY: number) {
   let x = Math.max(PLAYER_R + 8, Math.min(world.width - PLAYER_R - 8, toX));
   let y = Math.max(PLAYER_R + 8, Math.min(world.height - PLAYER_R - 8, toY));
   for (const box of world.solids) {
@@ -111,11 +103,11 @@ export function clampMove(world, fromX, fromY, toX, toY) {
   return { x, y };
 }
 
-export function deskById(world, id) {
+export function deskById(world: World, id: unknown) {
   return world.desks.find((d) => d.id === Number(id)) || null;
 }
 
-export function publicWorld(world) {
+export function publicWorld(world: World): PublicWorld {
   return {
     width: world.width,
     height: world.height,

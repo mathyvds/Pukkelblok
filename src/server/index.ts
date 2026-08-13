@@ -4,24 +4,27 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import cookieParser from "cookie-parser";
 import { Server } from "socket.io";
-import { createWorld, publicWorld } from "./world.js";
-import { createStore } from "./store.js";
+import { createWorld, publicWorld } from "../shared/world";
+import { createStore } from "./store";
 import {
   MAX_ONLINE,
   parseAvatar,
   validateChat,
   validateNames,
-} from "./validate.js";
+} from "../shared/validate";
+import { joinSchema, type ClientToServerEvents, type ServerToClientEvents } from "../shared/protocol";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, "../..");
 const PORT = Number(process.env.PORT) || 3000;
 const COOKIE_SECRET = process.env.COOKIE_SECRET || "blokbar-dev-secret-change-me";
 const COOKIE = "blokbar";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const isProd = process.env.NODE_ENV === "production";
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
+const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
   cors: { origin: false },
   pingInterval: 20000,
   pingTimeout: 20000,
@@ -34,9 +37,8 @@ const store = createStore(world);
 app.set("trust proxy", 1);
 app.use(cookieParser(COOKIE_SECRET));
 app.use(express.json({ limit: "180kb" }));
-app.use(express.static(path.join(__dirname, "../public"), { maxAge: "1h" }));
 
-function setSessionCookie(res, sid) {
+function setSessionCookie(res: express.Response, sid: string) {
   res.cookie(COOKIE, sid, {
     httpOnly: true,
     signed: true,
@@ -48,12 +50,7 @@ function setSessionCookie(res, sid) {
 }
 
 app.get("/api/health", (_req, res) => {
-  res.json({
-    ok: true,
-    name: "Blokbar",
-    online: store.onlineCount(),
-    max: MAX_ONLINE,
-  });
+  res.json({ ok: true, name: "Blokbar", festival: "Pukkelpop 2026", online: store.onlineCount(), max: MAX_ONLINE });
 });
 
 app.get("/api/world", (_req, res) => {
@@ -67,10 +64,12 @@ app.get("/api/me", (req, res) => {
 });
 
 app.post("/api/join", (req, res) => {
-  const names = validateNames(req.body?.firstName, req.body?.lastName);
-  if (names.error) return res.status(400).json({ error: names.error });
-  const avatar = parseAvatar(req.body?.avatar);
-  if (avatar.error) return res.status(400).json({ error: avatar.error });
+  const parsed = joinSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Ongeldige gegevens." });
+  const names = validateNames(parsed.data.firstName, parsed.data.lastName);
+  if ("error" in names) return res.status(400).json({ error: names.error });
+  const avatar = parseAvatar(parsed.data.avatar);
+  if ("error" in avatar) return res.status(400).json({ error: avatar.error });
 
   const result = store.join({
     sid: req.signedCookies[COOKIE],
@@ -78,7 +77,7 @@ app.post("/api/join", (req, res) => {
     lastName: names.lastName,
     avatar,
   });
-  if (result.error) return res.status(409).json({ error: result.error });
+  if ("error" in result) return res.status(409).json({ error: result.error });
 
   setSessionCookie(res, result.user.sid);
   res.json({
@@ -88,7 +87,7 @@ app.post("/api/join", (req, res) => {
   });
 });
 
-app.post("/api/logout", (req, res) => {
+app.post("/api/logout", (_req, res) => {
   res.clearCookie(COOKIE, { path: "/" });
   res.json({ ok: true });
 });
@@ -100,25 +99,21 @@ app.get("/media/avatar/:id", (req, res) => {
   res.type(file.mime).send(file.buffer);
 });
 
-function emitToUser(userId, event, payload) {
-  const target = store.get(userId);
-  if (target?.socketId) io.to(target.socketId).emit(event, payload);
-}
-
 io.use((socket, next) => {
   const raw = socket.request.headers.cookie || "";
-  const fakeReq = { headers: { cookie: raw } };
-  cookieParser(COOKIE_SECRET)(fakeReq, {}, () => {
+  const fakeReq = { headers: { cookie: raw } } as express.Request;
+  cookieParser(COOKIE_SECRET)(fakeReq, {} as express.Response, () => {
     const sid = fakeReq.signedCookies?.[COOKIE];
     const user = store.getBySid(sid);
     if (!user) return next(new Error("auth"));
-    socket.userId = user.id;
+    socket.data.userId = user.id;
     next();
   });
 });
 
 io.on("connection", (socket) => {
-  const user = store.connect(socket.userId, socket.id);
+  const userId = socket.data.userId as string;
+  const user = store.connect(userId, socket.id);
   if (!user) {
     socket.disconnect(true);
     return;
@@ -137,82 +132,80 @@ io.on("connection", (socket) => {
   io.to("tent").emit("presence", { online: store.onlineCount(), max: MAX_ONLINE });
 
   socket.on("move", (data) => {
-    const correction = store.move(
-      socket.userId,
-      Number(data?.x),
-      Number(data?.y),
-      Number(data?.facing),
-      Boolean(data?.moving)
-    );
+    const correction = store.move(userId, Number(data?.x), Number(data?.y), Number(data?.facing), Boolean(data?.moving));
     if (correction) socket.emit("player:correct", correction);
   });
 
   socket.on("sit", (deskId) => {
-    const result = store.sit(socket.userId, deskId);
-    if (result.error) return socket.emit("notice", { type: "error", text: result.error });
+    const result = store.sit(userId, deskId);
+    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
     io.to("tent").emit("player:update", result.user);
   });
 
   socket.on("stand", () => {
-    const pub = store.stand(socket.userId);
+    const pub = store.stand(userId);
     if (pub) io.to("tent").emit("player:update", pub);
   });
 
   socket.on("status", (data) => {
-    const pub = store.setStatus(socket.userId, data?.status, data?.statusText);
+    const pub = store.setStatus(userId, data?.status, data?.statusText);
     if (pub) io.to("tent").emit("player:update", pub);
   });
 
   socket.on("typing", (data) => {
-    const payload = store.setTyping(socket.userId, data?.typing, data?.draft);
+    const payload = store.setTyping(userId, Boolean(data?.typing), String(data?.draft || ""));
     if (payload) socket.broadcast.to("tent").emit("player:typing", payload);
   });
 
   socket.on("chat", (text) => {
     const parsed = validateChat(text);
-    if (parsed.error) return;
-    const me = store.get(socket.userId);
+    if ("error" in parsed) return;
+    const me = store.get(userId);
+    if (!me) return;
     const msg = store.addChat(me, parsed.text);
     io.to("tent").emit("chat", msg);
     io.to("tent").emit("player:update", store.publicUser(me));
   });
 
   socket.on("dm:open", (otherId) => {
-    const me = store.get(socket.userId);
+    const me = store.get(userId);
     const other = store.get(otherId);
     if (!me || !other) return;
     socket.emit("dm:history", { with: otherId, messages: store.getDms(me.id, otherId) });
   });
 
   socket.on("dm", (data) => {
-    const parsed = validateChat(data?.text);
-    if (parsed.error) return;
-    const me = store.get(socket.userId);
-    const result = store.addDm(me, data?.to, parsed.text);
-    if (result.error) return socket.emit("notice", { type: "error", text: result.error });
+    const parsed = validateChat(data.text);
+    if ("error" in parsed) return;
+    const me = store.get(userId);
+    if (!me) return;
+    const result = store.addDm(me, data.to, parsed.text);
+    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
     socket.emit("dm", result.msg);
-    emitToUser(result.to.id, "dm", result.msg);
+    const other = store.get(result.to.id);
+    if (other?.socketId) io.to(other.socketId).emit("dm", result.msg);
     io.to("tent").emit("player:update", store.publicUser(me));
   });
 
   socket.on("speeddate:join", () => {
-    const result = store.joinQueue(socket.userId);
-    if (result.error) return socket.emit("notice", { type: "error", text: result.error });
+    const result = store.joinQueue(userId);
+    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
     socket.emit("speeddate:queued", result);
   });
 
   socket.on("speeddate:leave", () => {
-    store.leaveQueue(socket.userId);
+    store.leaveQueue(userId);
     socket.emit("speeddate:queued", { queued: false, position: 0 });
   });
 
   socket.on("disconnect", () => {
-    const { endedDate } = store.disconnect(socket.userId);
-    io.to("tent").emit("player:leave", { id: socket.userId });
+    const { endedDate } = store.disconnect(userId);
+    io.to("tent").emit("player:leave", { id: userId });
     io.to("tent").emit("presence", { online: store.onlineCount(), max: MAX_ONLINE });
     if (endedDate) {
-      const other = endedDate.a === socket.userId ? endedDate.b : endedDate.a;
-      emitToUser(other, "speeddate:ended", { reason: "disconnect" });
+      const other = endedDate.a === userId ? endedDate.b : endedDate.a;
+      const target = store.get(other);
+      if (target?.socketId) io.to(target.socketId).emit("speeddate:ended", { reason: "disconnect" });
     }
   });
 });
@@ -229,24 +222,49 @@ setInterval(() => {
   for (const date of started) {
     const a = store.get(date.a);
     const b = store.get(date.b);
-    const payloadFor = (me, other) => ({
-      partner: store.publicUser(other),
-      endsAt: date.endsAt,
-      ice: date.ice,
-      waiting,
-    });
-    emitToUser(date.a, "speeddate:matched", payloadFor(a, b));
-    emitToUser(date.b, "speeddate:matched", payloadFor(b, a));
+    if (!a || !b) continue;
+    if (a.socketId) {
+      io.to(a.socketId).emit("speeddate:matched", { partner: store.publicUser(b), endsAt: date.endsAt, ice: date.ice, waiting });
+    }
+    if (b.socketId) {
+      io.to(b.socketId).emit("speeddate:matched", { partner: store.publicUser(a), endsAt: date.endsAt, ice: date.ice, waiting });
+    }
   }
   for (const date of ended) {
-    emitToUser(date.a, "speeddate:ended", { reason: date.reason });
-    emitToUser(date.b, "speeddate:ended", { reason: date.reason });
+    const a = store.get(date.a);
+    const b = store.get(date.b);
+    if (a?.socketId) io.to(a.socketId).emit("speeddate:ended", { reason: date.reason || "time" });
+    if (b?.socketId) io.to(b.socketId).emit("speeddate:ended", { reason: date.reason || "time" });
   }
   if (waiting) io.to("tent").emit("speeddate:waiting", { waiting });
 }, 1000);
 
 setInterval(() => store.prune(), 60_000);
 
+async function attachFrontend() {
+  if (isProd) {
+    const dist = path.join(ROOT, "dist");
+    app.use(express.static(dist));
+    app.use((req, res, next) => {
+      if (req.method !== "GET") return next();
+      if (req.path.startsWith("/api") || req.path.startsWith("/media") || req.path.startsWith("/socket.io")) {
+        return next();
+      }
+      res.sendFile(path.join(dist, "index.html"));
+    });
+    return;
+  }
+  const { createServer } = await import("vite");
+  const vite = await createServer({
+    root: ROOT,
+    server: { middlewareMode: true },
+    appType: "spa",
+  });
+  app.use(vite.middlewares);
+}
+
+await attachFrontend();
+
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Blokbar luistert op http://localhost:${PORT}`);
+  console.log(`Blokbar (PKP26) op http://localhost:${PORT} (${isProd ? "prod" : "dev"})`);
 });

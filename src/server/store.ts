@@ -1,23 +1,56 @@
 import crypto from "node:crypto";
-import { MAX_ONLINE, shirtColor, validateStatus } from "./validate.js";
-import { clampMove, deskById, ICEBREAKERS, MAX_SPEED } from "./world.js";
+import type { ChatMessage, DirectMessage, PlayerMove, PublicPlayer, Status } from "../shared/protocol";
+import { MAX_ONLINE, shirtColor, validateStatus, type AvatarPhoto, type AvatarPreset } from "../shared/validate";
+import { clampMove, deskById, ICEBREAKERS, MAX_SPEED, type World } from "../shared/world";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const BUBBLE_MS = 7000;
 const DATE_MS = 3 * 60 * 1000;
 
-export function createStore(world) {
-  const users = new Map();
-  const sessions = new Map();
-  const avatars = new Map();
-  const sockets = new Map();
-  const chat = [];
-  const dms = new Map();
-  const dateQueue = [];
-  const dates = new Map();
-  const pendingMoves = [];
+type AvatarInput = AvatarPreset | AvatarPhoto;
 
-  function publicUser(user) {
+export type User = {
+  id: string;
+  sid: string;
+  firstName: string;
+  lastName: string;
+  color: string;
+  x: number;
+  y: number;
+  facing: 1 | -1;
+  moving: boolean;
+  sittingDeskId: number | null;
+  status: Status;
+  statusText: string;
+  typing: boolean;
+  draft: string;
+  bubble: string;
+  bubbleUntil: number;
+  online: boolean;
+  lastMoveAt: number;
+  createdAt: number;
+  avatarVersion: number;
+  avatarUrl: string;
+  preset: number | null;
+  mime: string;
+  socketId?: string;
+  disconnectedAt?: number;
+};
+
+type DateMatch = { a: string; b: string; endsAt: number; ice: string; reason?: string };
+
+export function createStore(world: World) {
+  const users = new Map<string, User>();
+  const sessions = new Map<string, string>();
+  const avatars = new Map<string, { buffer: Buffer; mime: string }>();
+  const sockets = new Map<string, string>();
+  const chat: ChatMessage[] = [];
+  const dms = new Map<string, DirectMessage[]>();
+  const dateQueue: string[] = [];
+  const dates = new Map<string, DateMatch>();
+  const pendingMoves: PlayerMove[] = [];
+
+  function publicUser(user: User): PublicPlayer {
     return {
       id: user.id,
       firstName: user.firstName,
@@ -38,15 +71,16 @@ export function createStore(world) {
     };
   }
 
-  function dmKey(a, b) {
+  function dmKey(a: string, b: string) {
     return [a, b].sort().join(":");
   }
 
-  function get(id) {
+  function get(id: string) {
     return users.get(id) || null;
   }
 
-  function getBySid(sid) {
+  function getBySid(sid: string | undefined) {
+    if (!sid) return null;
     const id = sessions.get(sid);
     return id ? get(id) : null;
   }
@@ -57,15 +91,15 @@ export function createStore(world) {
     return n;
   }
 
-  function occupyDesk(deskId, userId) {
+  function occupyDesk(deskId: number, userId: string) {
     for (const user of users.values()) {
       if (user.sittingDeskId === deskId && user.id !== userId && user.online) return false;
     }
     return true;
   }
 
-  function join({ sid, firstName, lastName, avatar }) {
-    let user = sid ? getBySid(sid) : null;
+  function join(input: { sid?: string; firstName: string; lastName: string; avatar: AvatarInput }): { user: User } | { error: string } {
+    let user = input.sid ? getBySid(input.sid) : null;
     if (!user && onlineCount() >= MAX_ONLINE) {
       return { error: `De tent zit vol (${MAX_ONLINE} studenten). Probeer zo dadelijk opnieuw.` };
     }
@@ -73,10 +107,10 @@ export function createStore(world) {
     if (!user) {
       user = {
         id: crypto.randomUUID(),
-        sid: sid || crypto.randomUUID(),
-        firstName,
-        lastName,
-        color: shirtColor(`${firstName}${lastName}`),
+        sid: input.sid || crypto.randomUUID(),
+        firstName: input.firstName,
+        lastName: input.lastName,
+        color: shirtColor(`${input.firstName}${input.lastName}`),
         x: world.spawn.x + (Math.random() * 80 - 40),
         y: world.spawn.y + (Math.random() * 40 - 20),
         facing: 1,
@@ -92,25 +126,28 @@ export function createStore(world) {
         lastMoveAt: Date.now(),
         createdAt: Date.now(),
         avatarVersion: 1,
+        avatarUrl: "",
+        preset: null,
+        mime: "",
       };
       users.set(user.id, user);
       sessions.set(user.sid, user.id);
     } else {
-      user.firstName = firstName;
-      user.lastName = lastName;
-      user.color = shirtColor(`${firstName}${lastName}`);
+      user.firstName = input.firstName;
+      user.lastName = input.lastName;
+      user.color = shirtColor(`${input.firstName}${input.lastName}`);
     }
 
-    if (avatar.kind === "preset") {
+    if (input.avatar.kind === "preset") {
       avatars.delete(user.id);
-      user.preset = avatar.preset;
+      user.preset = input.avatar.preset;
       user.mime = "image/svg+xml";
       user.avatarVersion += 1;
-      user.avatarUrl = `/avatars/${avatar.preset}.svg`;
+      user.avatarUrl = `/avatars/${input.avatar.preset}.svg`;
     } else {
-      avatars.set(user.id, { buffer: avatar.buffer, mime: avatar.mime });
+      avatars.set(user.id, { buffer: input.avatar.buffer, mime: input.avatar.mime });
       user.preset = null;
-      user.mime = avatar.mime;
+      user.mime = input.avatar.mime;
       user.avatarVersion += 1;
       user.avatarUrl = `/media/avatar/${user.id}?v=${user.avatarVersion}`;
     }
@@ -118,7 +155,7 @@ export function createStore(world) {
     return { user };
   }
 
-  function connect(userId, socketId) {
+  function connect(userId: string, socketId: string) {
     const user = get(userId);
     if (!user) return null;
     user.online = true;
@@ -128,7 +165,7 @@ export function createStore(world) {
     return user;
   }
 
-  function disconnect(userId) {
+  function disconnect(userId: string) {
     const user = get(userId);
     if (!user) return { user: null, endedDate: null };
     user.online = false;
@@ -142,17 +179,13 @@ export function createStore(world) {
     return { user, endedDate };
   }
 
-  function move(userId, x, y, facing, moving) {
+  function move(userId: string, x: number, y: number, facing: number, moving: boolean) {
     const user = get(userId);
     if (!user || user.sittingDeskId) return null;
     const now = Date.now();
     const dt = Math.max(0.016, (now - user.lastMoveAt) / 1000);
-    const dx = x - user.x;
-    const dy = y - user.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist > MAX_SPEED * Math.min(dt, 0.35) + 24) {
-      return publicUser(user);
-    }
+    const dist = Math.hypot(x - user.x, y - user.y);
+    if (dist > MAX_SPEED * Math.min(dt, 0.35) + 24) return publicUser(user);
     const next = clampMove(world, user.x, user.y, x, y);
     user.x = next.x;
     user.y = next.y;
@@ -170,7 +203,7 @@ export function createStore(world) {
     return null;
   }
 
-  function sit(userId, deskId) {
+  function sit(userId: string, deskId: unknown): { user: PublicPlayer } | { error: string } {
     const user = get(userId);
     const desk = deskById(world, deskId);
     if (!user || !desk) return { error: "Dit bureau bestaat niet." };
@@ -182,14 +215,14 @@ export function createStore(world) {
     return { user: publicUser(user) };
   }
 
-  function stand(userId) {
+  function stand(userId: string) {
     const user = get(userId);
     if (!user) return null;
     user.sittingDeskId = null;
     return publicUser(user);
   }
 
-  function setStatus(userId, status, statusText) {
+  function setStatus(userId: string, status: unknown, statusText: unknown) {
     const user = get(userId);
     if (!user) return null;
     user.status = validateStatus(status);
@@ -197,7 +230,7 @@ export function createStore(world) {
     return publicUser(user);
   }
 
-  function setTyping(userId, typing, draft) {
+  function setTyping(userId: string, typing: boolean, draft: string) {
     const user = get(userId);
     if (!user) return null;
     user.typing = Boolean(typing);
@@ -205,8 +238,8 @@ export function createStore(world) {
     return { id: user.id, typing: user.typing, draft: user.draft };
   }
 
-  function addChat(user, text) {
-    const msg = {
+  function addChat(user: User, text: string) {
+    const msg: ChatMessage = {
       id: crypto.randomUUID(),
       from: user.id,
       firstName: user.firstName,
@@ -223,19 +256,19 @@ export function createStore(world) {
     return msg;
   }
 
-  function addDm(from, toId, text) {
+  function addDm(from: User, toId: string, text: string): { msg: DirectMessage; to: User; key: string } | { error: string } {
     const to = get(toId);
     if (!to) return { error: "Deze student is niet (meer) in de tent." };
     const key = dmKey(from.id, to.id);
     if (!dms.has(key)) dms.set(key, []);
-    const msg = {
+    const msg: DirectMessage = {
       id: crypto.randomUUID(),
       from: from.id,
       to: to.id,
       text,
       at: Date.now(),
     };
-    const list = dms.get(key);
+    const list = dms.get(key)!;
     list.push(msg);
     if (list.length > 80) list.shift();
     from.bubble = text;
@@ -245,11 +278,11 @@ export function createStore(world) {
     return { msg, to, key };
   }
 
-  function getDms(a, b) {
+  function getDms(a: string, b: string) {
     return dms.get(dmKey(a, b)) || [];
   }
 
-  function joinQueue(userId) {
+  function joinQueue(userId: string): { queued: boolean; position: number } | { error: string } {
     const user = get(userId);
     if (!user) return { error: "Niet ingelogd." };
     if (dates.has(userId)) return { error: "Je zit al in een speeddate." };
@@ -258,12 +291,12 @@ export function createStore(world) {
     return { queued: true, position: dateQueue.length };
   }
 
-  function leaveQueue(userId) {
+  function leaveQueue(userId: string) {
     const idx = dateQueue.indexOf(userId);
     if (idx >= 0) dateQueue.splice(idx, 1);
   }
 
-  function endDate(userId, reason) {
+  function endDate(userId: string, reason: string) {
     const date = dates.get(userId);
     if (!date) return null;
     dates.delete(date.a);
@@ -275,10 +308,10 @@ export function createStore(world) {
     for (let i = dateQueue.length - 1; i >= 0; i--) {
       if (!get(dateQueue[i])?.online) dateQueue.splice(i, 1);
     }
-    const started = [];
+    const started: DateMatch[] = [];
     while (dateQueue.length >= 2) {
-      const a = dateQueue.shift();
-      const b = dateQueue.shift();
+      const a = dateQueue.shift()!;
+      const b = dateQueue.shift()!;
       const ua = get(a);
       const ub = get(b);
       if (!ua?.online || !ub?.online) {
@@ -292,7 +325,7 @@ export function createStore(world) {
       dates.set(b, date);
       started.push(date);
     }
-    const ended = [];
+    const ended: DateMatch[] = [];
     for (const date of new Set(dates.values())) {
       if (date.endsAt <= now) {
         const done = endDate(date.a, "time");
@@ -305,13 +338,13 @@ export function createStore(world) {
   function flushMoves() {
     if (!pendingMoves.length) return [];
     const batch = pendingMoves.splice(0, pendingMoves.length);
-    const last = new Map();
+    const last = new Map<string, PlayerMove>();
     for (const m of batch) last.set(m.id, m);
     return [...last.values()];
   }
 
   function expireBubbles(now = Date.now()) {
-    const expired = [];
+    const expired: string[] = [];
     for (const user of users.values()) {
       if (user.bubble && user.bubbleUntil && user.bubbleUntil < now) {
         user.bubble = "";
@@ -341,7 +374,7 @@ export function createStore(world) {
     }
   }
 
-  function avatarOf(id) {
+  function avatarOf(id: string) {
     return avatars.get(id) || null;
   }
 
