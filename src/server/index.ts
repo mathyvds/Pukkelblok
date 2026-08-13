@@ -266,6 +266,17 @@ io.on("connection", (socket) => {
     io.to("tent").emit("player:update", result.user);
   });
 
+  socket.on("sit:spot", (spotId) => {
+    const result = store.sitSpot(userId, spotId);
+    if ("error" in result) {
+      socket.emit("notice", { type: "error", text: result.error });
+      const me = store.get(userId);
+      if (me) socket.emit("player:correct", store.publicUser(me));
+      return;
+    }
+    io.to("tent").emit("player:update", result.user);
+  });
+
   socket.on("stand", () => {
     const pub = store.stand(userId);
     if (pub) io.to("tent").emit("player:update", pub);

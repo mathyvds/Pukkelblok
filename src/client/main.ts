@@ -8,6 +8,7 @@ import type {
 } from "../shared/protocol";
 import { DESK_COUNT } from "../shared/protocol";
 import * as world from "./world";
+import { createAmbience } from "./ambience";
 import "./styles.css";
 
 const $ = <T extends HTMLElement>(id: string) => {
@@ -67,6 +68,8 @@ const state = {
   lastTyping: 0,
 };
 
+const ambience = createAmbience();
+
 function show(name: Screen) {
   for (const screen of Object.values(screens)) screen.classList.remove("active");
   screens[name].classList.add("active");
@@ -84,8 +87,22 @@ function fullName(p: PublicPlayer) {
   return `${p.firstName} ${p.lastName}`;
 }
 
+function deskHintFor(user: PublicPlayer) {
+  if (user.sittingDeskId) return `Je zit aan bureau ${user.sittingDeskId}`;
+  if (user.sittingSpotId?.startsWith("stool")) return "Je zit aan de koffiebar";
+  if (user.sittingSpotId?.startsWith("lounge")) return "Je zit in de lounge";
+  return user.homeDeskId ? `Jouw bureau: ${user.homeDeskId}` : "";
+}
+
 function statusLabel(p: PublicPlayer) {
   const map: Record<Status, string> = {
+    kennismaken: "Klaar om kennis te maken",
+    studeren: "Aan het studeren",
+    pauze: "Pauze",
+  };
+  const base = map[p.status] || "In de tent";
+  return p.statusText ? `${base} · ${p.statusText}` : base;
+}
     kennismaken: "Klaar om kennis te maken",
     studeren: "Aan het studeren",
     pauze: "Pauze",
@@ -265,7 +282,7 @@ function enterTent(user: PublicPlayer) {
   $("me-name").textContent = user.firstName;
   ($("me-face") as HTMLImageElement).src = user.avatarUrl;
   ($("status-select") as HTMLSelectElement).value = user.status || "studeren";
-  ui.deskHint.textContent = user.homeDeskId ? `Jouw bureau: ${user.homeDeskId}` : "";
+  ui.deskHint.textContent = deskHintFor(user);
   syncPauseClock(user);
   world.mount({
     canvas: $("world") as HTMLCanvasElement,
@@ -277,11 +294,14 @@ function enterTent(user: PublicPlayer) {
       onSit: (deskId) => {
         state.socket?.emit("sit", deskId);
       },
+      onSitSpot: (spotId) => {
+        state.socket?.emit("sit:spot", spotId);
+      },
       onStand: () => {
         state.socket?.emit("stand");
         const select = $("status-select") as HTMLSelectElement;
         if (select.value === "studeren") select.value = "pauze";
-        ui.deskHint.textContent = state.me?.homeDeskId ? `Jouw bureau: ${state.me.homeDeskId}` : "";
+        ui.deskHint.textContent = state.me ? deskHintFor({ ...state.me, sittingDeskId: null, sittingSpotId: null }) : "";
       },
       onClickPerson: openProfile,
     },
@@ -324,7 +344,7 @@ function connectSocket() {
     ui.chatMsgs.innerHTML = "";
     payload.chat.forEach(addChatLine);
     renderOnline();
-    notify(`Welkom in de Blokbar, ${payload.you.firstName}.`);
+    notify(`Welkom in de Blokbar, ${payload.you.firstName}. De tent staat — morgen begint PKP.`);
   });
 
   socket.on("presence", (p) => {
@@ -352,10 +372,9 @@ function connectSocket() {
     world.upsert(merged);
     if (p.id === state.me?.id) {
       state.me = merged;
-        if (merged.sittingDeskId) ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
-        else if (merged.homeDeskId) ui.deskHint.textContent = `Jouw bureau: ${merged.homeDeskId}`;
-        ($("status-select") as HTMLSelectElement).value = merged.status;
-        syncPauseClock(merged);
+      ui.deskHint.textContent = deskHintFor(merged);
+      ($("status-select") as HTMLSelectElement).value = merged.status;
+      syncPauseClock(merged);
     }
     renderOnline();
   });
@@ -365,8 +384,7 @@ function connectSocket() {
     world.upsert(merged);
     if (p.id === state.me?.id) {
       state.me = merged;
-      if (merged.sittingDeskId) ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
-      else if (merged.homeDeskId) ui.deskHint.textContent = `Jouw bureau: ${merged.homeDeskId}`;
+      ui.deskHint.textContent = deskHintFor(merged);
     }
   });
   socket.on("players:moves", (moves) => world.applyMoves(moves));
@@ -599,6 +617,13 @@ $("status-select").addEventListener("change", () => {
 });
 
 $("btn-speeddate").addEventListener("click", () => $("modal-date").classList.add("open"));
+$("btn-sound").addEventListener("click", async () => {
+  await ambience.toggle();
+  const btn = $("btn-sound");
+  btn.textContent = ambience.muted ? "Geluid uit" : "Geluid zacht";
+  btn.setAttribute("aria-pressed", ambience.muted ? "false" : "true");
+  btn.classList.toggle("on", !ambience.muted);
+});
 $("date-close").addEventListener("click", () => $("modal-date").classList.remove("open"));
 $("date-join").addEventListener("click", () =>
   state.socket?.emit("speeddate:join", {

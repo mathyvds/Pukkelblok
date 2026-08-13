@@ -28,6 +28,7 @@ export type PublicPlayer = {
   facing: 1 | -1;
   moving: boolean;
   sittingDeskId: number | null;
+  sittingSpotId: string | null;
   homeDeskId: number;
   age: number;
   school: string;
@@ -69,6 +70,7 @@ export type MovePayload = {
 export type PlayerMove = MovePayload & {
   id: string;
   sittingDeskId: number | null;
+  sittingSpotId: string | null;
 };
 
 export type Desk = {
@@ -100,6 +102,26 @@ export type Zone = {
   h: number;
 };
 
+export type SeatKind = "stool" | "lounge";
+
+export type Seat = {
+  id: string;
+  kind: SeatKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  seatX: number;
+  seatY: number;
+};
+
+export type WorldBlocker = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
 export type PublicWorld = {
   width: number;
   height: number;
@@ -107,6 +129,8 @@ export type PublicWorld = {
   desks: Desk[];
   speedTables: SpeedTable[];
   zones: Zone[];
+  seats: Seat[];
+  blockers: WorldBlocker[];
   proximity: number;
   pauseMs: number;
 };
@@ -123,6 +147,7 @@ export type HelloPayload = {
 export type ClientToServerEvents = {
   move: (data: MovePayload) => void;
   sit: (deskId: number) => void;
+  "sit:spot": (spotId: string) => void;
   stand: () => void;
   status: (data: { status: Status; statusText?: string }) => void;
   typing: (data: { typing: boolean; draft: string }) => void;

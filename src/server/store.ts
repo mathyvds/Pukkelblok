@@ -9,7 +9,7 @@ import {
   SHOUT_COOLDOWN_MS,
 } from "../shared/protocol";
 import { shirtColor, validateStatus, type AvatarPhoto, type AvatarPreset } from "../shared/validate";
-import { clampMove, deskById, ICEBREAKERS, MAX_SPEED, type World } from "../shared/world";
+import { clampMove, deskById, seatById, ICEBREAKERS, MAX_SPEED, type World } from "../shared/world";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const BUBBLE_MS = 7000;
@@ -28,6 +28,7 @@ export type User = {
   facing: 1 | -1;
   moving: boolean;
   sittingDeskId: number | null;
+  sittingSpotId: string | null;
   homeDeskId: number;
   age: number;
   school: string;
@@ -79,6 +80,7 @@ export function createStore(world: World) {
       facing: user.facing,
       moving: user.moving,
       sittingDeskId: user.sittingDeskId,
+      sittingSpotId: user.sittingSpotId,
       homeDeskId: user.homeDeskId,
       age: user.age,
       school: user.school,
@@ -229,6 +231,7 @@ export function createStore(world: World) {
         facing: 1,
         moving: false,
         sittingDeskId: desk.id,
+        sittingSpotId: null,
         homeDeskId: desk.id,
         age: input.age,
         school: input.school,
@@ -262,6 +265,7 @@ export function createStore(world: World) {
       user.program = input.program;
       user.homeDeskId = desk.id;
       user.sittingDeskId = desk.id;
+      user.sittingSpotId = null;
       user.x = desk.seatX;
       user.y = desk.seatY;
       user.moving = false;
@@ -328,9 +332,21 @@ export function createStore(world: World) {
     return { ...finishDisconnect(userId), stale: false as const };
   }
 
+  function seated(user: User) {
+    return user.sittingDeskId != null || Boolean(user.sittingSpotId);
+  }
+
+  function occupySeat(spotId: string, userId: string) {
+    for (const user of users.values()) {
+      if (user.id === userId) continue;
+      if (user.sittingSpotId === spotId && (user.online || user.present)) return false;
+    }
+    return true;
+  }
+
   function move(userId: string, x: number, y: number, facing: number, moving: boolean) {
     const user = get(userId);
-    if (!user || user.sittingDeskId) return null;
+    if (!user || seated(user)) return null;
     const now = Date.now();
     const dt = Math.max(0.016, (now - user.lastMoveAt) / 1000);
     const dist = Math.hypot(x - user.x, y - user.y);
@@ -349,6 +365,7 @@ export function createStore(world: World) {
       facing: user.facing,
       moving: user.moving,
       sittingDeskId: null,
+      sittingSpotId: null,
     });
     return corrected ? publicUser(user) : null;
   }
@@ -359,6 +376,7 @@ export function createStore(world: World) {
     if (!user || !desk) return { error: "Dit bureau bestaat niet." };
     if (!occupyDesk(desk.id, user.id)) return { error: "Dit bureau is al bezet." };
     user.sittingDeskId = desk.id;
+    user.sittingSpotId = null;
     user.x = desk.seatX;
     user.y = desk.seatY;
     user.moving = false;
@@ -371,10 +389,32 @@ export function createStore(world: World) {
     return { user: publicUser(user) };
   }
 
+  function sitSpot(userId: string, spotId: unknown): { user: PublicPlayer } | { error: string } {
+    const user = get(userId);
+    const seat = seatById(world, spotId);
+    if (!user || !seat) return { error: "Deze plek bestaat niet." };
+    if (!occupySeat(seat.id, user.id)) {
+      return { error: seat.kind === "lounge" ? "Deze bank is al bezet." : "Deze kruk is al bezet." };
+    }
+    user.sittingSpotId = seat.id;
+    user.sittingDeskId = null;
+    user.x = seat.seatX;
+    user.y = seat.seatY;
+    user.moving = false;
+    if (user.status === "studeren") {
+      user.status = "pauze";
+      if (!user.pauseUntil || user.pauseUntil < Date.now()) {
+        user.pauseUntil = Date.now() + PAUSE_MS;
+      }
+    }
+    return { user: publicUser(user) };
+  }
+
   function stand(userId: string) {
     const user = get(userId);
     if (!user) return null;
     user.sittingDeskId = null;
+    user.sittingSpotId = null;
     if (user.status === "studeren") {
       user.status = "pauze";
       if (!user.pauseUntil || user.pauseUntil < Date.now()) {
@@ -394,6 +434,7 @@ export function createStore(world: World) {
       const desk = deskById(world, user.homeDeskId);
       if (desk) {
         user.sittingDeskId = desk.id;
+        user.sittingSpotId = null;
         user.x = desk.seatX;
         user.y = desk.seatY;
         user.moving = false;
@@ -650,6 +691,7 @@ export function createStore(world: World) {
     disconnect,
     move,
     sit,
+    sitSpot,
     stand,
     setStatus,
     setTyping,
