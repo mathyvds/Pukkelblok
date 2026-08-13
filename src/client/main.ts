@@ -8,6 +8,7 @@ import type {
 } from "../shared/protocol";
 import { DESK_COUNT } from "../shared/protocol";
 import * as world from "./world";
+import { createAmbience } from "./ambience";
 import "./styles.css";
 
 const $ = <T extends HTMLElement>(id: string) => {
@@ -66,6 +67,8 @@ const state = {
   camStream: null as MediaStream | null,
   lastTyping: 0,
 };
+
+const ambience = createAmbience();
 
 function show(name: Screen) {
   for (const screen of Object.values(screens)) screen.classList.remove("active");
@@ -265,7 +268,7 @@ function enterTent(user: PublicPlayer) {
   $("me-name").textContent = user.firstName;
   ($("me-face") as HTMLImageElement).src = user.avatarUrl;
   ($("status-select") as HTMLSelectElement).value = user.status || "studeren";
-  ui.deskHint.textContent = user.homeDeskId ? `Stilte · jouw bureau ${user.homeDeskId}` : "";
+  ui.deskHint.textContent = world.myPlaceHint() || (user.homeDeskId ? `Stilte · jouw bureau ${user.homeDeskId}` : "");
   syncPauseClock(user);
   syncStudyClock(user);
   syncChatPlace();
@@ -280,13 +283,16 @@ function enterTent(user: PublicPlayer) {
       onSit: (deskId) => {
         state.socket?.emit("sit", deskId);
       },
+      onSitSpot: (spotId) => {
+        state.socket?.emit("sit:spot", spotId);
+      },
       onStand: () => {
         state.socket?.emit("stand");
         const select = $("status-select") as HTMLSelectElement;
         if (select.value === "studeren") select.value = "pauze";
         ui.deskHint.textContent = world.myPlaceHint();
         if (state.me) {
-          state.me = { ...state.me, status: select.value as Status };
+          state.me = { ...state.me, status: select.value as Status, sittingDeskId: null, sittingSpotId: null };
           syncStudyClock(state.me);
           syncChatPlace();
         }
@@ -332,7 +338,7 @@ function connectSocket() {
     ui.chatMsgs.innerHTML = "";
     payload.chat.forEach(addChatLine);
     renderOnline();
-    notify(`Welkom in de Blokbar, ${payload.you.firstName}.`);
+    notify(`Welkom in de Blokbar, ${payload.you.firstName}. De tent staat — morgen begint PKP.`);
     syncPauseClock(payload.you);
     syncStudyClock(payload.you);
     syncChatPlace();
@@ -377,7 +383,7 @@ function connectSocket() {
     world.upsert(merged);
     if (p.id === state.me?.id) {
       state.me = merged;
-      if (merged.homeDeskId) ui.deskHint.textContent = world.myPlaceHint();
+      ui.deskHint.textContent = world.myPlaceHint();
     }
   });
   socket.on("players:moves", (moves) => world.applyMoves(moves));
@@ -635,6 +641,13 @@ document.querySelectorAll("#study-mins button").forEach((btn) => {
 });
 
 $("btn-speeddate").addEventListener("click", () => $("modal-date").classList.add("open"));
+$("btn-sound").addEventListener("click", async () => {
+  await ambience.toggle();
+  const btn = $("btn-sound");
+  btn.textContent = ambience.muted ? "Geluid uit" : "Geluid zacht";
+  btn.setAttribute("aria-pressed", ambience.muted ? "false" : "true");
+  btn.classList.toggle("on", !ambience.muted);
+});
 $("date-close").addEventListener("click", () => $("modal-date").classList.remove("open"));
 $("date-join").addEventListener("click", () =>
   state.socket?.emit("speeddate:join", {

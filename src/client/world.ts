@@ -1,5 +1,6 @@
 import type { PlayerMove, PublicPlayer, PublicWorld, Status } from "../shared/protocol";
 import { clampMove, inZone, solidsOf, type World } from "../shared/world";
+import { drawHomeNest, drawStaticTent, drawStringLights, drawWarmSpots } from "./tent-art";
 
 export type WorldPerson = PublicPlayer & {
   walkT: number;
@@ -12,6 +13,7 @@ export type WorldPerson = PublicPlayer & {
 export type WorldHandlers = {
   onMove?: (pos: { x: number; y: number; facing: 1 | -1; moving: boolean }) => void;
   onSit?: (deskId: number) => void;
+  onSitSpot?: (spotId: string) => void;
   onStand?: () => void;
   onClickPerson?: (id: string) => void;
 };
@@ -80,6 +82,9 @@ export function mount(opts: {
     window.addEventListener("keyup", onKeyUp);
     state.canvas.addEventListener("click", onClick);
     state.mounted = true;
+    void document.fonts?.ready?.then(() => {
+      state.cache = null;
+    });
     loop(performance.now());
   }
 }
@@ -129,6 +134,7 @@ export function applyMoves(moves: PlayerMove[]) {
     p.facing = m.facing;
     p.moving = m.moving;
     p.sittingDeskId = m.sittingDeskId;
+    p.sittingSpotId = m.sittingSpotId ?? p.sittingSpotId ?? null;
   }
 }
 
@@ -139,9 +145,10 @@ function me() {
 export function walkTo(x: number, y: number) {
   const self = me();
   if (!self || self.inDate) return;
-  if (self.sittingDeskId) {
+  if (self.sittingDeskId || self.sittingSpotId) {
     state.handlers.onStand?.();
     self.sittingDeskId = null;
+    self.sittingSpotId = null;
   }
   state.followId = null;
   state.target = { x, y };
@@ -151,9 +158,10 @@ export function walkToPlayer(id: string) {
   const self = me();
   const other = state.players.get(id);
   if (!self || !other || self.inDate) return;
-  if (self.sittingDeskId) {
+  if (self.sittingDeskId || self.sittingSpotId) {
     state.handlers.onStand?.();
     self.sittingDeskId = null;
+    self.sittingSpotId = null;
   }
   state.followId = id;
   retargetFollow();
@@ -185,6 +193,8 @@ export function myPlaceHint() {
   if (!self || !w) return "";
   if (self.inDate) return "Je zit aan een speeddate-tafel";
   if (self.status === "studeren") return `Stilte · jouw bureau ${self.homeDeskId}`;
+  if (self.sittingSpotId?.startsWith("stool")) return "Koffiehoek · je zit aan de bar";
+  if (self.sittingSpotId?.startsWith("lounge")) return "Lounge · je zit op de bank";
   if (self.talkCircleId) return "Lounge · praatcirkel — geen timer";
   if (inZone(w, self.x, self.y, "coffee")) return "Koffiehoek · hier mag je praten";
   if (inZone(w, self.x, self.y, "lounge")) return "Lounge · schuif aan bij een cirkel";
@@ -242,7 +252,14 @@ function onClick(e: MouseEvent) {
     state.followId = null;
     return;
   }
-  if (self?.sittingDeskId) state.handlers.onStand?.();
+  const seat = hitSeat(worldPt.x, worldPt.y);
+  if (seat) {
+    state.handlers.onSitSpot?.(seat.id);
+    state.target = null;
+    state.followId = null;
+    return;
+  }
+  if (self?.sittingDeskId || self?.sittingSpotId) state.handlers.onStand?.();
   state.followId = null;
   state.target = worldPt;
 }
@@ -277,6 +294,47 @@ function hitPerson(x: number, y: number) {
 
 function hitDesk(x: number, y: number) {
   return state.world?.desks.find((d) => x >= d.x && x <= d.x + d.w && y >= d.y && y <= d.y + d.h + 40) || null;
+}
+
+function takenSpots() {
+  const taken = new Set<string>();
+  for (const p of state.players.values()) {
+    if (p.sittingSpotId) taken.add(p.sittingSpotId);
+  }
+  return taken;
+}
+
+function nearestOpenSeat(x: number, y: number, kind?: "stool" | "lounge") {
+  const world = state.world;
+  if (!world) return null;
+  const taken = takenSpots();
+  let best = null as (typeof world.seats)[number] | null;
+  let bestD = 140;
+  for (const seat of world.seats) {
+    if (kind && seat.kind !== kind) continue;
+    if (taken.has(seat.id) && seat.id !== me()?.sittingSpotId) continue;
+    const d = Math.hypot(x - seat.seatX, y - seat.seatY);
+    if (d < bestD) {
+      best = seat;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+function hitSeat(x: number, y: number) {
+  const world = state.world;
+  if (!world) return null;
+  const direct = world.seats.find((s) => {
+    const padTop = s.kind === "lounge" ? 90 : 8;
+    return x >= s.x - 8 && x <= s.x + s.w + 8 && y >= s.y - padTop && y <= s.y + s.h + 36;
+  });
+  if (direct) return direct;
+  const bar = world.zones.find((z) => z.id === "bar");
+  if (bar && x >= bar.x && x <= bar.x + bar.w && y >= bar.y && y <= bar.y + 120) {
+    return nearestOpenSeat(x, y, "stool");
+  }
+  return null;
 }
 
 function loop(ts: number) {
@@ -319,11 +377,12 @@ function update(dt: number) {
     state.target = null;
     state.followId = null;
   } else {
-    if (self.sittingDeskId && (dir.dx || dir.dy)) {
+    if ((self.sittingDeskId || self.sittingSpotId) && (dir.dx || dir.dy)) {
       state.handlers.onStand?.();
       self.sittingDeskId = null;
+      self.sittingSpotId = null;
     }
-    if (!self.sittingDeskId) {
+    if (!self.sittingDeskId && !self.sittingSpotId) {
       if (dir.dx || dir.dy) {
         const len = Math.hypot(dir.dx, dir.dy) || 1;
         tryMove(self, (dir.dx / len) * SPEED * dt, (dir.dy / len) * SPEED * dt);
@@ -380,148 +439,14 @@ function update(dt: number) {
   if (world.height < state.viewH) state.camY = (world.height - state.viewH) / 2;
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, fill: string) {
-  ctx.fillStyle = fill;
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, r);
-  ctx.fill();
-}
-
 function drawStatic(ctx: CanvasRenderingContext2D, w: PublicWorld) {
-  ctx.fillStyle = "#141414";
-  ctx.fillRect(0, 0, w.width, w.height);
-  for (let y = 80; y < w.height; y += 28) {
-    ctx.fillStyle = "#1c1c1c";
-    ctx.fillRect(0, y, w.width, 2);
-  }
-  const stripe = ctx.createLinearGradient(0, 0, 0, 220);
-  stripe.addColorStop(0, "#FFE600");
-  stripe.addColorStop(1, "rgba(255,230,0,0)");
-  ctx.fillStyle = stripe;
-  ctx.globalAlpha = 0.18;
-  ctx.fillRect(0, 0, w.width, 220);
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "#000";
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(w.width, 0);
-  ctx.lineTo(w.width, 90);
-  ctx.lineTo(w.width / 2, 30);
-  ctx.lineTo(0, 90);
-  ctx.closePath();
-  ctx.fill();
-
-  const zone = (id: string) => w.zones.find((z) => z.id === id);
-  const bar = zone("bar");
-  const coffee = zone("coffee");
-  const stage = zone("stage");
-  const info = zone("info");
-  const lounge = zone("lounge");
-  const study = zone("study");
-  const speed = zone("speeddate");
-
-  if (study) {
-    ctx.fillStyle = "rgba(28, 48, 84, 0.28)";
-    ctx.fillRect(study.x, study.y, study.w, study.h);
-    ctx.fillStyle = "#93c5fd";
-    ctx.font = "800 20px Geist, sans-serif";
-    ctx.fillText("Stilte  ·  blokzone", study.x + 24, study.y + 32);
-  }
-
-  if (coffee) {
-    roundRect(ctx, coffee.x, coffee.y, coffee.w, coffee.h, 22, "#1c1408");
-    ctx.fillStyle = "rgba(255, 180, 40, 0.16)";
-    ctx.fillRect(coffee.x + 12, coffee.y + 12, coffee.w - 24, coffee.h - 24);
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 26px Geist, sans-serif";
-    ctx.fillText("Koffiehoek", coffee.x + 28, coffee.y + 52);
-    ctx.fillStyle = "#f5e6b8";
-    ctx.font = "500 15px Geist, sans-serif";
-    ctx.fillText("Hier mag je praten. Haal een kop en schuif aan.", coffee.x + 28, coffee.y + 82);
-    ctx.fillStyle = "#2a2010";
-    for (let i = 0; i < 5; i++) {
-      ctx.beginPath();
-      ctx.ellipse(coffee.x + 90 + i * 130, coffee.y + coffee.h - 36, 28, 14, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  if (bar) {
-    roundRect(ctx, bar.x + 10, bar.y + 8, bar.w - 20, bar.h - 10, 12, "#111");
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 22px Geist, sans-serif";
-    ctx.fillText("Koffie & fris", bar.x + 40, bar.y + 42);
-  }
-
-  if (stage) {
-    roundRect(ctx, stage.x, stage.y, stage.w, stage.h, 18, "#000");
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 42px Bebas Neue, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("PKP26  ·  CLUB  ·  PUKKELBLOK", stage.x + stage.w / 2, stage.y + 58);
-    ctx.font = "600 18px Geist, sans-serif";
-    ctx.fillText("100 bureaus  ·  20–23 AUG  ·  Kiewit", stage.x + stage.w / 2, stage.y + 96);
-    ctx.textAlign = "left";
-  }
-
-  if (info) {
-    roundRect(ctx, info.x + 10, info.y + 10, info.w - 20, info.h - 20, 16, "#111");
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 22px Geist, sans-serif";
-    ctx.fillText("Speeddate 16:30", info.x + 40, info.y + 58);
-    ctx.fillStyle = "#ddd";
-    ctx.font = "500 15px Geist, sans-serif";
-    ctx.fillText("Aan een tafel in de tent. Lounge is om vrij aan te schuiven.", info.x + 40, info.y + 88);
-  }
-
-  if (lounge) {
-    roundRect(ctx, lounge.x, lounge.y, lounge.w, lounge.h, 20, "#161018");
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 18px Geist, sans-serif";
-    ctx.fillText("Lounge", lounge.x + 22, lounge.y + 36);
-    ctx.fillStyle = "#c8c8c8";
-    ctx.font = "500 13px Geist, sans-serif";
-    ctx.fillText("Schuif aan. Geen timer.", lounge.x + 22, lounge.y + 56);
-  }
-
-  for (const d of w.desks) {
-    roundRect(ctx, d.x, d.y, d.w, d.h, 10, "#2a2a2a");
-    roundRect(ctx, d.x + 10, d.y + 10, d.w - 20, 32, 6, "#0a0a0a");
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 15px Geist, sans-serif";
-    ctx.fillText(d.label, d.x + 16, d.y + 66);
-    ctx.fillStyle = "#1a1a1a";
-    ctx.beginPath();
-    ctx.ellipse(d.seatX, d.seatY + 6, 22, 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  if (speed) {
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 22px Geist, sans-serif";
-    ctx.fillText("Speeddate-hoek", speed.x + 20, speed.y + 28);
-  }
-  for (const t of w.speedTables) {
-    roundRect(ctx, t.x, t.y, t.w, t.h, 12, "#1a1a1a");
-    ctx.fillStyle = "#fff";
-    ctx.font = "700 16px Geist, sans-serif";
-    ctx.fillText(t.label, t.x + 16, t.y + 54);
-    ctx.fillStyle = "#111";
-    ctx.beginPath();
-    ctx.ellipse(t.seatAx, t.seatAy + 6, 18, 9, 0, 0, Math.PI * 2);
-    ctx.ellipse(t.seatBx, t.seatBy + 6, 18, 9, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.strokeStyle = "rgba(255,230,0,.35)";
-  ctx.lineWidth = 8;
-  ctx.strokeRect(24, 24, w.width - 48, w.height - 48);
+  drawStaticTent(ctx, w);
 }
 
 function ensureCache() {
   const w = state.world;
   if (!w) return;
-  if (state.cache && state.cache.width === w.width) return;
+  if (state.cache && state.cache.width === w.width && state.cache.height === w.height) return;
   const c = document.createElement("canvas");
   c.width = w.width;
   c.height = w.height;
@@ -541,29 +466,27 @@ function draw() {
   ensureCache();
   if (state.cache) ctx.drawImage(state.cache, 0, 0);
   const t = Date.now() / 400;
-  for (let i = 0; i < 18; i++) {
-    const x = 80 + (i * (w.width - 160)) / 17;
-    const y = 58 + Math.sin(t + i) * 4;
-    ctx.fillStyle = i % 2 ? "#FFE600" : "#ffffff";
-    ctx.globalAlpha = 0.55 + Math.sin(t * 1.4 + i) * 0.35;
-    ctx.beginPath();
-    ctx.arc(x, y, 5, 0, Math.PI * 2);
-    ctx.fill();
+  drawWarmSpots(ctx, w, t);
+  drawStringLights(ctx, w, t);
+  const self = me();
+  if (self?.homeDeskId) {
+    const home = w.desks.find((d) => d.id === self.homeDeskId);
+    if (home) drawHomeNest(ctx, home);
   }
   ctx.globalAlpha = 1;
-  for (const circle of w.talkCircles) {
+  for (const circle of w.talkCircles || []) {
     const n = [...state.players.values()].filter((p) => p.talkCircleId === circle.id).length;
     ctx.beginPath();
     ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
-    ctx.fillStyle = n ? "rgba(233, 30, 140, 0.14)" : "rgba(255, 230, 0, 0.06)";
+    ctx.fillStyle = n ? "rgba(196, 91, 122, 0.16)" : "rgba(212, 188, 58, 0.07)";
     ctx.fill();
     ctx.setLineDash([10, 8]);
-    ctx.strokeStyle = n ? "rgba(255, 230, 0, 0.7)" : "rgba(255, 230, 0, 0.28)";
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = n ? "rgba(212, 188, 58, 0.55)" : "rgba(232, 176, 96, 0.28)";
+    ctx.lineWidth = 2;
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = "#ffe600";
-    ctx.font = "700 14px Geist, sans-serif";
+    ctx.fillStyle = "#e8d5a8";
+    ctx.font = "700 13px Geist, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(n ? `Cirkel  ${n}/${circle.max}` : "Schuif aan", circle.x, circle.y - 8);
     ctx.textAlign = "left";
@@ -644,8 +567,9 @@ function syncDom() {
     const y = p.iy ?? p.y;
     el.style.transform = `translate(${x}px, ${y}px)`;
     el.style.zIndex = String(100 + Math.floor(y));
-    el.classList.toggle("walking", Boolean(p.moving) && !p.sittingDeskId && !p.inDate);
-    el.classList.toggle("sitting", Boolean(p.sittingDeskId) || Boolean(p.inDate));
+    const seated = Boolean(p.sittingDeskId) || Boolean(p.sittingSpotId) || Boolean(p.inDate);
+    el.classList.toggle("walking", Boolean(p.moving) && !seated);
+    el.classList.toggle("sitting", seated);
     el.classList.toggle("face-left", p.facing === -1);
     el.classList.toggle("silent", p.status === "studeren");
     el.classList.toggle("in-circle", Boolean(p.talkCircleId));

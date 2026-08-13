@@ -189,6 +189,63 @@ test("opstaan uit studeermodus start de pauze-timer", () => {
   assert.ok((pub?.pauseUntil || 0) > Date.now());
 });
 
+test("wereld heeft krukken, loungeplekken en geen dashboard-muren", () => {
+  const world = createWorld();
+  assert.ok(world.seats.filter((s) => s.kind === "stool").length >= 6);
+  assert.ok(world.seats.filter((s) => s.kind === "lounge").length >= 6);
+  assert.ok(world.blockers.length > 0);
+  const ontoStage = clampMove(world, 1600, 280, 1600, 160);
+  assert.ok(ontoStage.y < 200, "het lege podium moet begaanbaar zijn");
+  const intoBar = clampMove(world, 400, 260, 400, 110);
+  assert.ok(intoBar.y > 150, "de koffietoog blijft een obstakel");
+});
+
+test("zitten in de lounge claimt je bureau niet", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 12 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  store.stand(a.user.id);
+  const spot = store.sitSpot(a.user.id, "lounge-1a");
+  assert.ok("user" in spot);
+  assert.equal(spot.user.sittingSpotId, "lounge-1a");
+  assert.equal(spot.user.sittingDeskId, null);
+  assert.equal(spot.user.homeDeskId, 12);
+  assert.equal(spot.user.status, "pauze");
+  const occ = store.deskOccupancy().find((d) => d.id === 12);
+  assert.equal(occ?.taken, true);
+});
+
+test("twee studenten kunnen niet op dezelfde kruk", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(
+    guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } })
+  );
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.stand(a.user.id);
+  store.stand(b.user.id);
+  const first = store.sitSpot(a.user.id, "stool-1");
+  const second = store.sitSpot(b.user.id, "stool-1");
+  assert.ok("user" in first);
+  assert.ok("error" in second);
+});
+
+test("studeren vanuit de koffiebar brengt je terug naar je bureau", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 15 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  store.stand(a.user.id);
+  store.sitSpot(a.user.id, "stool-3");
+  const back = store.setStatus(a.user.id, "studeren", "");
+  assert.equal(back?.sittingDeskId, 15);
+  assert.equal(back?.sittingSpotId, null);
+  assert.equal(back?.status, "studeren");
+});
+
 test("wereldmuren houden je uit de rand", () => {
   const world = createWorld();
   const next = clampMove(world, 200, 200, 10, 200);

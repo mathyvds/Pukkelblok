@@ -1,4 +1,4 @@
-import type { Desk, PublicWorld, SpeedTable, TalkCircle, Zone } from "./protocol";
+import type { Desk, PublicWorld, Seat, SpeedTable, TalkCircle, WorldBlocker, Zone } from "./protocol";
 import { CIRCLE_MAX, DESK_COUNT, PAUSE_MS, PROXIMITY } from "./protocol";
 
 export const WORLD_W = 3200;
@@ -74,32 +74,89 @@ function makeTalkCircles(): TalkCircle[] {
   }));
 }
 
-const BAR_COUNTER: Box = { x: 90, y: 98, w: 700, h: 52 };
+function makeSeats(circles: TalkCircle[]): Seat[] {
+  const seats: Seat[] = [];
+  for (let i = 0; i < 6; i++) {
+    const x = 130 + i * 108;
+    const y = 188;
+    seats.push({
+      id: `stool-${i + 1}`,
+      kind: "stool",
+      x,
+      y,
+      w: 46,
+      h: 40,
+      seatX: x + 23,
+      seatY: y + 52,
+    });
+  }
+  circles.forEach((c, i) => {
+    seats.push({
+      id: `lounge-${i + 1}a`,
+      kind: "lounge",
+      x: 58,
+      y: c.y - 38,
+      w: 72,
+      h: 34,
+      seatX: 128,
+      seatY: c.y - 16,
+    });
+    seats.push({
+      id: `lounge-${i + 1}b`,
+      kind: "lounge",
+      x: 58,
+      y: c.y + 6,
+      w: 72,
+      h: 34,
+      seatX: 128,
+      seatY: c.y + 24,
+    });
+  });
+  return seats;
+}
+
+function makeBlockers(): WorldBlocker[] {
+  return [
+    { x: 86, y: 86, w: 708, h: 64 },
+    { x: 860, y: 62, w: 1500, h: 48 },
+    { x: WORLD_W - 760, y: 86, w: 680, h: 148 },
+    { x: 92, y: 2268, w: 78, h: 54 },
+    { x: 186, y: 2284, w: 58, h: 42 },
+    { x: 2988, y: 2254, w: 86, h: 58 },
+    { x: 120, y: WORLD_H - 92, w: 240, h: 28 },
+    { x: WORLD_W - 420, y: WORLD_H - 96, w: 280, h: 28 },
+  ];
+}
 
 export function solidsOf(
-  world: Pick<PublicWorld, "width" | "height" | "desks" | "speedTables" | "zones">
+  world: Pick<PublicWorld, "width" | "height" | "desks" | "speedTables" | "blockers">
 ): Box[] {
   return [
     { x: 0, y: 0, w: world.width, h: 70, wall: true },
     { x: 0, y: world.height - 40, w: world.width, h: 40, wall: true },
     { x: 0, y: 0, w: 40, h: world.height, wall: true },
     { x: world.width - 40, y: 0, w: 40, h: world.height, wall: true },
-    BAR_COUNTER,
-    ...world.zones.filter((z) => z.id === "stage" || z.id === "info"),
+    ...(world.blockers || []),
     ...world.desks.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h })),
     ...world.speedTables.map((t) => ({ x: t.x, y: t.y, w: t.w, h: t.h })),
   ];
+}
+
+export function seatById(world: Pick<PublicWorld, "seats">, id: unknown) {
+  return (world.seats || []).find((s) => s.id === String(id || "")) || null;
 }
 
 export function createWorld(): World {
   const desks = makeDesks();
   const speedTables = makeSpeedTables();
   const talkCircles = makeTalkCircles();
+  const seats = makeSeats(talkCircles);
+  const blockers = makeBlockers();
   const zones: Zone[] = [
     { id: "bar", name: "Koffiebar", x: 80, y: 90, w: 720, h: 70 },
     { id: "coffee", name: "Koffiehoek", x: 50, y: 155, w: 780, h: 185 },
-    { id: "stage", name: "Club", x: 840, y: 90, w: 1540, h: 130 },
-    { id: "info", name: "Info", x: WORLD_W - 780, y: 90, w: 700, h: 150 },
+    { id: "stage", name: "Club", x: 840, y: 90, w: 1540, h: 160 },
+    { id: "info", name: "Dagprogramma", x: WORLD_W - 780, y: 90, w: 700, h: 170 },
     { id: "study", name: "Blokzone", x: 330, y: 340, w: 2100, h: 1850 },
     { id: "speeddate", name: "Speeddate", x: WORLD_W - 460, y: 340, w: 400, h: 1900 },
     { id: "lounge", name: "Lounge", x: 50, y: 360, w: 270, h: 1880 },
@@ -112,6 +169,8 @@ export function createWorld(): World {
     speedTables,
     talkCircles,
     zones,
+    seats,
+    blockers,
     proximity: PROXIMITY,
     pauseMs: PAUSE_MS,
   };
@@ -172,6 +231,8 @@ export function publicWorld(world: World): PublicWorld {
     speedTables: world.speedTables,
     talkCircles: world.talkCircles,
     zones: world.zones,
+    seats: world.seats,
+    blockers: world.blockers,
     proximity: world.proximity,
     pauseMs: world.pauseMs,
   };
