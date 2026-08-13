@@ -139,3 +139,73 @@ test("privébericht komt niet als spraakwolk", () => {
   assert.ok("msg" in result);
   assert.equal(a.user.bubble, "");
 });
+
+test("oude socket mag je niet offline zetten na reconnect", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 1 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "old-sock");
+  const second = store.connect(a.user.id, "new-sock");
+  assert.equal(second?.announceJoin, false);
+  const dropped = store.dropSocket(a.user.id, "old-sock");
+  assert.equal(dropped.stale, true);
+  assert.equal(store.get(a.user.id)?.online, true);
+});
+
+test("bureau blijft van jou na een lange disconnect", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 7 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  store.dropSocket(a.user.id, "s1");
+  a.user.disconnectedAt = Date.now() - 60_000;
+  const b = store.join(
+    guest({ firstName: "Britt", lastName: "Beelen", deskId: 7, avatar: { kind: "preset" as const, preset: 2 } })
+  );
+  assert.ok("error" in b);
+  const occ = store.deskOccupancy().find((d) => d.id === 7);
+  assert.equal(occ?.taken, true);
+});
+
+test("logout geeft bureau meteen vrij", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 4 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  const left = store.logout(a.user.sid);
+  assert.ok(left && !("error" in left));
+  const b = store.join(
+    guest({ firstName: "Britt", lastName: "Beelen", deskId: 4, avatar: { kind: "preset" as const, preset: 2 } })
+  );
+  assert.ok("user" in b);
+});
+
+test("opstaan uit studeermodus start de pauze-timer", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 12 }));
+  if (!("user" in a)) throw new Error("expected user");
+  const pub = store.stand(a.user.id);
+  assert.equal(pub?.status, "pauze");
+  assert.ok((pub?.pauseUntil || 0) > Date.now());
+});
+
+test("wereldmuren houden je uit de rand", () => {
+  const world = createWorld();
+  const next = clampMove(world, 200, 200, 10, 200);
+  assert.ok(next.x > 40);
+});
+
+test("reconnect binnen grace is geen nieuwe join-aankondiging", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 2 }));
+  if (!("user" in a)) throw new Error("expected user");
+  const first = store.connect(a.user.id, "s1");
+  assert.equal(first?.announceJoin, true);
+  store.dropSocket(a.user.id, "s1");
+  const second = store.connect(a.user.id, "s2");
+  assert.equal(second?.announceJoin, false);
+  store.dropSocket(a.user.id, "s2");
+  store.finishDisconnect(a.user.id);
+  const third = store.connect(a.user.id, "s3");
+  assert.equal(third?.announceJoin, true);
+});

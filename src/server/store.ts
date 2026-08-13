@@ -50,6 +50,7 @@ export type User = {
   mime: string;
   socketId?: string;
   disconnectedAt?: number;
+  present: boolean;
 };
 
 type DateMatch = { a: string; b: string; endsAt: number; ice: string; reason?: string };
@@ -112,24 +113,29 @@ export function createStore(world: World) {
     return n;
   }
 
+  function holdsDesk(user: User, deskId: number, now: number) {
+    if (user.homeDeskId === deskId) return true;
+    if (user.sittingDeskId !== deskId) return false;
+    if (user.online) return true;
+    if (!user.disconnectedAt) return true;
+    return now - user.disconnectedAt < 30_000;
+  }
+
   function occupyDesk(deskId: number, userId: string) {
     const now = Date.now();
     for (const user of users.values()) {
       if (user.id === userId) continue;
-      if (user.homeDeskId !== deskId && user.sittingDeskId !== deskId) continue;
-      if (user.online) return false;
-      if (!user.disconnectedAt) return false;
-      if (now - user.disconnectedAt < 30_000) return false;
+      if (holdsDesk(user, deskId, now)) return false;
     }
     return true;
   }
 
   function deskOccupancy() {
+    const now = Date.now();
     return world.desks.map((desk) => {
-      const sitter = [...users.values()].find(
-        (u) => u.homeDeskId === desk.id || (u.online && u.sittingDeskId === desk.id)
-      );
-      const taken = !occupyDesk(desk.id, "");
+      const holders = [...users.values()].filter((u) => holdsDesk(u, desk.id, now));
+      const sitter = holders.find((u) => u.online || u.present) || holders[0];
+      const taken = holders.length > 0;
       return {
         id: desk.id,
         taken,
@@ -156,20 +162,30 @@ export function createStore(world: World) {
     };
   }
 
-  function kick(userId: string) {
+  function removeUser(userId: string, reason: "kick" | "leave" = "leave") {
     const user = get(userId);
     if (!user) return { error: "Deze student is niet (meer) in de tent." };
     const socketId = user.socketId || null;
     const sid = user.sid;
     const name = `${user.firstName} ${user.lastName}`;
     leaveQueue(userId);
-    const endedDate = endDate(userId, "kick");
-    kicked.add(sid);
+    const endedDate = endDate(userId, reason);
+    if (reason === "kick") kicked.add(sid);
     users.delete(userId);
     sessions.delete(sid);
     avatars.delete(userId);
     sockets.delete(userId);
     return { socketId, name, endedDate, id: userId };
+  }
+
+  function kick(userId: string) {
+    return removeUser(userId, "kick");
+  }
+
+  function logout(sid: string | undefined) {
+    const user = getBySid(sid);
+    if (!user) return null;
+    return removeUser(user.id, "leave");
   }
 
   function chatHistoryFor(userId: string) {
@@ -233,6 +249,7 @@ export function createStore(world: World) {
         avatarUrl: "",
         preset: null,
         mime: "",
+        present: false,
       };
       users.set(user.id, user);
       sessions.set(user.sid, user.id);
@@ -271,25 +288,44 @@ export function createStore(world: World) {
   function connect(userId: string, socketId: string) {
     const user = get(userId);
     if (!user) return null;
+    const announceJoin = !user.present;
     user.online = true;
+    user.present = true;
     user.socketId = socketId;
-    user.disconnectedAt = 0;
+    user.disconnectedAt = undefined;
     sockets.set(userId, socketId);
-    return user;
+    return { user, announceJoin };
   }
 
-  function disconnect(userId: string) {
+  function dropSocket(userId: string, socketId?: string) {
     const user = get(userId);
-    if (!user) return { user: null, endedDate: null };
+    if (!user) return { stale: true as const, user: null };
+    if (socketId && user.socketId && user.socketId !== socketId) {
+      return { stale: true as const, user: null };
+    }
     user.online = false;
     user.moving = false;
     user.typing = false;
     user.draft = "";
     user.disconnectedAt = Date.now();
+    user.socketId = undefined;
     sockets.delete(userId);
+    return { stale: false as const, user };
+  }
+
+  function finishDisconnect(userId: string) {
+    const user = get(userId);
+    if (!user || user.online) return null;
+    user.present = false;
     leaveQueue(userId);
     const endedDate = endDate(userId, "disconnect");
     return { user, endedDate };
+  }
+
+  function disconnect(userId: string, socketId?: string) {
+    const dropped = dropSocket(userId, socketId);
+    if (dropped.stale || !dropped.user) return { user: null, endedDate: null, stale: true as const };
+    return { ...finishDisconnect(userId), stale: false as const };
   }
 
   function move(userId: string, x: number, y: number, facing: number, moving: boolean) {
@@ -300,6 +336,7 @@ export function createStore(world: World) {
     const dist = Math.hypot(x - user.x, y - user.y);
     if (dist > MAX_SPEED * Math.min(dt, 0.35) + 24) return publicUser(user);
     const next = clampMove(world, user.x, user.y, x, y);
+    const corrected = Math.hypot(next.x - x, next.y - y) > 2;
     user.x = next.x;
     user.y = next.y;
     user.facing = facing === -1 ? -1 : 1;
@@ -313,7 +350,7 @@ export function createStore(world: World) {
       moving: user.moving,
       sittingDeskId: null,
     });
-    return null;
+    return corrected ? publicUser(user) : null;
   }
 
   function sit(userId: string, deskId: unknown): { user: PublicPlayer } | { error: string } {
@@ -325,6 +362,12 @@ export function createStore(world: World) {
     user.x = desk.seatX;
     user.y = desk.seatY;
     user.moving = false;
+    if (desk.id !== user.homeDeskId && user.status === "studeren") {
+      user.status = "pauze";
+      if (!user.pauseUntil || user.pauseUntil < Date.now()) {
+        user.pauseUntil = Date.now() + PAUSE_MS;
+      }
+    }
     return { user: publicUser(user) };
   }
 
@@ -332,7 +375,12 @@ export function createStore(world: World) {
     const user = get(userId);
     if (!user) return null;
     user.sittingDeskId = null;
-    if (user.status === "studeren") user.status = "pauze";
+    if (user.status === "studeren") {
+      user.status = "pauze";
+      if (!user.pauseUntil || user.pauseUntil < Date.now()) {
+        user.pauseUntil = Date.now() + PAUSE_MS;
+      }
+    }
     return publicUser(user);
   }
 
@@ -626,5 +674,9 @@ export function createStore(world: World) {
     kick,
     prune,
     deskOccupancy,
+    dropSocket,
+    finishDisconnect,
+    logout,
+    removeUser,
   };
 }

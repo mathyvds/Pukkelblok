@@ -58,6 +58,7 @@ const state = {
   players: new Map<string, PublicPlayer>(),
   avatar: { preset: 1 } as AvatarChoice,
   socket: null as Socket<ServerToClientEvents, ClientToServerEvents> | null,
+  touchBound: false,
   dmTarget: null as string | null,
   dmUnread: 0,
   dms: new Map<string, DirectMessage[]>(),
@@ -275,7 +276,6 @@ function enterTent(user: PublicPlayer) {
       onMove: (pos) => state.socket?.emit("move", pos),
       onSit: (deskId) => {
         state.socket?.emit("sit", deskId);
-        ui.deskHint.textContent = `Je zit aan bureau ${deskId}`;
       },
       onStand: () => {
         state.socket?.emit("stand");
@@ -287,7 +287,8 @@ function enterTent(user: PublicPlayer) {
     },
   });
   connectSocket();
-  if (window.matchMedia("(pointer: coarse)").matches) {
+  if (!state.touchBound && window.matchMedia("(pointer: coarse)").matches) {
+    state.touchBound = true;
     $("touch-pad").hidden = false;
     $("touch-pad").querySelectorAll("button").forEach((btn) => {
       const dir = (btn as HTMLElement).dataset.dir as "up" | "down" | "left" | "right";
@@ -302,6 +303,8 @@ function enterTent(user: PublicPlayer) {
 }
 
 function connectSocket() {
+  state.socket?.removeAllListeners();
+  state.socket?.disconnect();
   const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io({
     transports: ["websocket", "polling"],
   });
@@ -329,17 +332,19 @@ function connectSocket() {
     $("max-count").textContent = String(p.max);
   });
   socket.on("player:join", (p) => {
+    const existed = state.players.has(p.id);
     state.players.set(p.id, p);
     world.upsert(p);
     renderOnline();
-    notify(`${p.firstName} komt de tent binnen.`);
+    if (!existed) notify(`${p.firstName} komt de tent binnen.`);
   });
   socket.on("player:leave", ({ id }) => {
     const left = state.players.get(id);
+    if (!left) return;
     state.players.delete(id);
     world.remove(id);
     renderOnline();
-    if (left) notify(`${left.firstName} verlaat de tent.`);
+    if (id !== state.me?.id) notify(`${left.firstName} verlaat de tent.`);
   });
   socket.on("player:update", (p) => {
     const merged = { ...(state.players.get(p.id) || p), ...p };
@@ -354,7 +359,16 @@ function connectSocket() {
     }
     renderOnline();
   });
-  socket.on("player:correct", (p) => world.upsert(p));
+  socket.on("player:correct", (p) => {
+    const merged = { ...(state.players.get(p.id) || p), ...p };
+    state.players.set(p.id, merged);
+    world.upsert(merged);
+    if (p.id === state.me?.id) {
+      state.me = merged;
+      if (merged.sittingDeskId) ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
+      else if (merged.homeDeskId) ui.deskHint.textContent = `Jouw bureau: ${merged.homeDeskId}`;
+    }
+  });
   socket.on("players:moves", (moves) => world.applyMoves(moves));
   socket.on("player:typing", (p) => {
     const prev = state.players.get(p.id);
@@ -407,15 +421,24 @@ function connectSocket() {
     tickDate(payload.endsAt);
     notify(`Speeddate met ${payload.partner.firstName}!`);
   });
-  socket.on("speeddate:ended", () => {
-    $("date-copy").textContent = "De drie minuten zijn om. Je mag verder chatten via berichten.";
+  socket.on("speeddate:ended", (payload) => {
+    const reasons: Record<string, string> = {
+      time: "De drie minuten zijn om. Je mag verder chatten via berichten.",
+      disconnect: "Je date is even weg. Je mag verder chatten via berichten.",
+      kick: "Je date is de tent uit. Je mag verder chatten via berichten.",
+      leave: "De speeddate is gestopt.",
+    };
+    $("date-copy").textContent = reasons[payload.reason] || reasons.time;
     $("date-timer").hidden = true;
+    $("date-ice").hidden = true;
     $("date-join").hidden = false;
+    $("date-leave").hidden = true;
     clearInterval(state.dateTimer);
   });
   socket.on("connect_error", () => {
     notify("Sessie verlopen. Maak opnieuw een gastaccount.");
     show("join");
+    void loadDesks();
   });
 }
 

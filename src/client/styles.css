@@ -530,6 +530,11 @@ kbd {
 .person.sitting .face {
   bottom: 36px;
 }
+.person.face-left .torso,
+.person.face-left .face,
+.person.face-left .legs {
+  transform: scaleX(-1);
+}
 .person .nametag {
   position: absolute;
   left: 50%;
@@ -727,7 +732,6 @@ kbd {
   padding: 0.7rem 1.1rem;
   max-width: min(520px, 86%);
   text-align: center;
-}
 }
 .empty {
   color: var(--color-muted);
