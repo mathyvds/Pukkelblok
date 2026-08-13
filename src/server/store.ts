@@ -1,15 +1,26 @@
 import crypto from "node:crypto";
-import type { ChatMessage, DirectMessage, PlayerMove, PublicPlayer, Status } from "../shared/protocol";
+import type {
+  ChatMessage,
+  ChatScope,
+  DirectMessage,
+  PlayerMove,
+  PublicPlayer,
+  Status,
+  StudyMinutes,
+} from "../shared/protocol";
 import {
   CHAT_COOLDOWN_MS,
   DATE_WAIT_FALLBACK_MS,
+  DEFAULT_STUDY_MINUTES,
   MAX_ONLINE,
   PAUSE_MS,
   PROXIMITY,
   SHOUT_COOLDOWN_MS,
+  STUDY_MINUTES,
+  WHISPER_PROXIMITY,
 } from "../shared/protocol";
 import { shirtColor, validateStatus, type AvatarPhoto, type AvatarPreset } from "../shared/validate";
-import { clampMove, deskById, seatById, ICEBREAKERS, MAX_SPEED, type World } from "../shared/world";
+import { clampMove, deskById, ICEBREAKERS, inCircle, inZone, MAX_SPEED, seatById, type World } from "../shared/world";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const BUBBLE_MS = 7000;
@@ -52,9 +63,12 @@ export type User = {
   socketId?: string;
   disconnectedAt?: number;
   present: boolean;
+  talkCircleId: string | null;
+  dateTableId: string | null;
+  studyUntil: number;
 };
 
-type DateMatch = { a: string; b: string; endsAt: number; ice: string; reason?: string };
+type DateMatch = { a: string; b: string; endsAt: number; ice: string; tableId: string; tableLabel: string; reason?: string };
 
 export function createStore(world: World) {
   const users = new Map<string, User>();
@@ -92,7 +106,23 @@ export function createStore(world: World) {
       draft: user.draft,
       bubble: user.bubble,
       inDate: dates.has(user.id),
+      talkCircleId: user.talkCircleId,
+      dateTableId: user.dateTableId,
+      studyUntil: user.studyUntil || 0,
     };
+  }
+
+  function isSilent(user: User) {
+    return user.status === "studeren";
+  }
+
+  function parseStudyMinutes(value: unknown): StudyMinutes {
+    const n = Number(value);
+    return (STUDY_MINUTES as readonly number[]).includes(n) ? (n as StudyMinutes) : DEFAULT_STUDY_MINUTES;
+  }
+
+  function studyDurationMs(value: unknown) {
+    return parseStudyMinutes(value) * 60 * 1000;
   }
 
   function dmKey(a: string, b: string) {
@@ -191,8 +221,11 @@ export function createStore(world: World) {
   }
 
   function chatHistoryFor(userId: string) {
-    const near = new Set(nearbyIds(userId));
-    return chat.filter((m) => m.scope === "tent" || near.has(m.from)).slice(-40);
+    const user = get(userId);
+    if (!user || isSilent(user)) return [];
+    const { ids } = chatAudience(userId);
+    const allow = new Set(ids);
+    return chat.filter((m) => m.scope === "tent" || allow.has(m.from)).slice(-40);
   }
 
   function join(input: {
@@ -253,6 +286,9 @@ export function createStore(world: World) {
         preset: null,
         mime: "",
         present: false,
+        talkCircleId: null,
+        dateTableId: null,
+        studyUntil: Date.now() + studyDurationMs(DEFAULT_STUDY_MINUTES),
       };
       users.set(user.id, user);
       sessions.set(user.sid, user.id);
@@ -270,6 +306,9 @@ export function createStore(world: World) {
       user.y = desk.seatY;
       user.moving = false;
       user.status = "studeren";
+      user.talkCircleId = null;
+      user.dateTableId = null;
+      user.studyUntil = Date.now() + studyDurationMs(DEFAULT_STUDY_MINUTES);
     }
 
     if (input.avatar.kind === "preset") {
@@ -346,7 +385,7 @@ export function createStore(world: World) {
 
   function move(userId: string, x: number, y: number, facing: number, moving: boolean) {
     const user = get(userId);
-    if (!user || seated(user)) return null;
+    if (!user || seated(user) || dates.has(userId)) return null;
     const now = Date.now();
     const dt = Math.max(0.016, (now - user.lastMoveAt) / 1000);
     const dist = Math.hypot(x - user.x, y - user.y);
@@ -374,6 +413,7 @@ export function createStore(world: World) {
     const user = get(userId);
     const desk = deskById(world, deskId);
     if (!user || !desk) return { error: "Dit bureau bestaat niet." };
+    if (dates.has(userId)) return { error: "Je zit nog aan een speeddate-tafel." };
     if (!occupyDesk(desk.id, user.id)) return { error: "Dit bureau is al bezet." };
     user.sittingDeskId = desk.id;
     user.sittingSpotId = null;
@@ -393,6 +433,7 @@ export function createStore(world: World) {
     const user = get(userId);
     const seat = seatById(world, spotId);
     if (!user || !seat) return { error: "Deze plek bestaat niet." };
+    if (dates.has(userId)) return { error: "Je zit nog aan een speeddate-tafel." };
     if (!occupySeat(seat.id, user.id)) {
       return { error: seat.kind === "lounge" ? "Deze bank is al bezet." : "Deze kruk is al bezet." };
     }
@@ -413,10 +454,12 @@ export function createStore(world: World) {
   function stand(userId: string) {
     const user = get(userId);
     if (!user) return null;
+    if (dates.has(userId)) return publicUser(user);
     user.sittingDeskId = null;
     user.sittingSpotId = null;
     if (user.status === "studeren") {
       user.status = "pauze";
+      user.studyUntil = 0;
       if (!user.pauseUntil || user.pauseUntil < Date.now()) {
         user.pauseUntil = Date.now() + PAUSE_MS;
       }
@@ -424,13 +467,19 @@ export function createStore(world: World) {
     return publicUser(user);
   }
 
-  function setStatus(userId: string, status: unknown, statusText: unknown) {
+  function setStatus(userId: string, status: unknown, statusText: unknown, studyMinutes?: unknown) {
     const user = get(userId);
     if (!user) return null;
-    user.status = validateStatus(status);
+    const next = validateStatus(status);
+    if (next === "studeren" && dates.has(userId)) {
+      endDate(userId, "leave");
+    }
+    user.status = next;
     user.statusText = String(statusText || "").trim().slice(0, 60);
     if (user.status === "studeren") {
       user.pauseUntil = 0;
+      user.studyUntil = Date.now() + studyDurationMs(studyMinutes);
+      user.talkCircleId = null;
       const desk = deskById(world, user.homeDeskId);
       if (desk) {
         user.sittingDeskId = desk.id;
@@ -440,11 +489,13 @@ export function createStore(world: World) {
         user.moving = false;
       }
     } else if (user.status === "pauze") {
+      user.studyUntil = 0;
       if (!user.pauseUntil || user.pauseUntil < Date.now()) {
         user.pauseUntil = Date.now() + PAUSE_MS;
       }
     } else {
       user.pauseUntil = 0;
+      user.studyUntil = 0;
     }
     return publicUser(user);
   }
@@ -460,9 +511,65 @@ export function createStore(world: World) {
     return ended;
   }
 
+  function tickStudyTimers(now = Date.now()) {
+    const ended: PublicPlayer[] = [];
+    for (const user of users.values()) {
+      if (user.status === "studeren" && user.studyUntil && user.studyUntil <= now) {
+        const pub = setStatus(user.id, "pauze", "");
+        if (pub) ended.push(pub);
+      }
+    }
+    return ended;
+  }
+
+  function chatAudience(userId: string): { ids: string[]; scope: ChatScope } {
+    const me = get(userId);
+    if (!me?.online || isSilent(me)) return { ids: [], scope: "near" };
+
+    const onlineMatching = (pred: (u: User) => boolean) =>
+      [...users.values()].filter((u) => u.online && pred(u)).map((u) => u.id);
+
+    if (dates.has(me.id)) {
+      const date = dates.get(me.id)!;
+      return {
+        ids: [date.a, date.b].filter((id) => get(id)?.online),
+        scope: "date",
+      };
+    }
+
+    if (me.talkCircleId) {
+      const cid = me.talkCircleId;
+      return {
+        ids: onlineMatching((u) => u.talkCircleId === cid && !isSilent(u)),
+        scope: "circle",
+      };
+    }
+
+    if (inZone(world, me.x, me.y, "coffee")) {
+      return {
+        ids: onlineMatching((u) => !isSilent(u) && inZone(world, u.x, u.y, "coffee")),
+        scope: "coffee",
+      };
+    }
+
+    const range = inZone(world, me.x, me.y, "study") ? WHISPER_PROXIMITY : PROXIMITY;
+    const ids: string[] = [];
+    for (const user of users.values()) {
+      if (!user.online) continue;
+      if (isSilent(user) && user.id !== me.id) continue;
+      if (user.id === me.id || Math.hypot(user.x - me.x, user.y - me.y) <= range) ids.push(user.id);
+    }
+    return { ids, scope: "near" };
+  }
+
   function setTyping(userId: string, typing: boolean, draft: string) {
     const user = get(userId);
     if (!user) return null;
+    if (isSilent(user)) {
+      user.typing = false;
+      user.draft = "";
+      return { id: user.id, typing: false, draft: "", x: user.x, y: user.y };
+    }
     user.typing = Boolean(typing);
     user.draft = user.typing ? String(draft || "").slice(0, 80) : "";
     return { id: user.id, typing: user.typing, draft: user.draft, x: user.x, y: user.y };
@@ -484,8 +591,41 @@ export function createStore(world: World) {
     return { ok: true };
   }
 
-  function addChat(user: User, text: string, scope: "near" | "tent" = "near"): { msg: ChatMessage } | { error: string } {
-    const limited = rateLimitChat(user, scope);
+  function addChat(
+    user: User,
+    text: string,
+    kind: "speak" | "shout" = "speak"
+  ): { msg: ChatMessage; ids: string[] } | { error: string } {
+    if (isSilent(user)) {
+      return {
+        error:
+          kind === "shout"
+            ? "In stille modus roep je niet naar de hele tent."
+            : "Je zit in stille modus. Kies Pauze of Kennismaken om te praten.",
+      };
+    }
+    if (kind === "shout") {
+      const limited = rateLimitChat(user, "tent");
+      if ("error" in limited) return limited;
+      const msg: ChatMessage = {
+        id: crypto.randomUUID(),
+        from: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        text,
+        scope: "tent",
+        at: Date.now(),
+      };
+      chat.push(msg);
+      if (chat.length > 120) chat.shift();
+      user.typing = false;
+      user.draft = "";
+      const ids = [...users.values()].filter((u) => u.online && !isSilent(u)).map((u) => u.id);
+      return { msg, ids };
+    }
+
+    const audience = chatAudience(user.id);
+    const limited = rateLimitChat(user, "near");
     if ("error" in limited) return limited;
     const msg: ChatMessage = {
       id: crypto.randomUUID(),
@@ -493,18 +633,16 @@ export function createStore(world: World) {
       firstName: user.firstName,
       lastName: user.lastName,
       text,
-      scope,
+      scope: audience.scope,
       at: Date.now(),
     };
     chat.push(msg);
     if (chat.length > 120) chat.shift();
-    if (scope === "near") {
-      user.bubble = text;
-      user.bubbleUntil = Date.now() + BUBBLE_MS;
-    }
+    user.bubble = text;
+    user.bubbleUntil = Date.now() + BUBBLE_MS;
     user.typing = false;
     user.draft = "";
-    return { msg };
+    return { msg, ids: audience.ids };
   }
 
   function addDm(from: User, toId: string, text: string): { msg: DirectMessage; to: User; key: string } | { error: string } {
@@ -531,15 +669,70 @@ export function createStore(world: World) {
     return dms.get(dmKey(a, b)) || [];
   }
 
-  function nearbyIds(userId: string, range = PROXIMITY) {
-    const me = get(userId);
-    if (!me) return [];
-    const ids: string[] = [];
+  function nearbyIds(userId: string) {
+    return chatAudience(userId).ids;
+  }
+
+  function assignTalkCircles() {
+    const changed: PublicPlayer[] = [];
+    const counts = new Map<string, number>();
+    for (const circle of world.talkCircles) counts.set(circle.id, 0);
+
+    const eligible: User[] = [];
     for (const user of users.values()) {
-      if (!user.online) continue;
-      if (user.id === me.id || Math.hypot(user.x - me.x, user.y - me.y) <= range) ids.push(user.id);
+      const allowed =
+        user.online &&
+        !isSilent(user) &&
+        !dates.has(user.id) &&
+        !user.sittingDeskId &&
+        inZone(world, user.x, user.y, "lounge");
+      if (!allowed) {
+        if (user.talkCircleId) {
+          user.talkCircleId = null;
+          changed.push(publicUser(user));
+        }
+        continue;
+      }
+      eligible.push(user);
     }
-    return ids;
+
+    for (const user of eligible) {
+      if (!user.talkCircleId) continue;
+      const circle = world.talkCircles.find((c) => c.id === user.talkCircleId);
+      if (!circle || !inCircle(circle, user.x, user.y, 28)) {
+        user.talkCircleId = null;
+        changed.push(publicUser(user));
+        continue;
+      }
+      const n = counts.get(circle.id) || 0;
+      if (n >= circle.max) {
+        user.talkCircleId = null;
+        changed.push(publicUser(user));
+        continue;
+      }
+      counts.set(circle.id, n + 1);
+    }
+
+    for (const user of eligible) {
+      if (user.talkCircleId) continue;
+      let best = null as (typeof world.talkCircles)[number] | null;
+      let bestD = Infinity;
+      for (const circle of world.talkCircles) {
+        if ((counts.get(circle.id) || 0) >= circle.max) continue;
+        if (!inCircle(circle, user.x, user.y)) continue;
+        const d = Math.hypot(user.x - circle.x, user.y - circle.y);
+        if (d < bestD) {
+          bestD = d;
+          best = circle;
+        }
+      }
+      if (best) {
+        user.talkCircleId = best.id;
+        counts.set(best.id, (counts.get(best.id) || 0) + 1);
+        changed.push(publicUser(user));
+      }
+    }
+    return changed;
   }
 
   function joinQueue(
@@ -566,12 +759,48 @@ export function createStore(world: World) {
     if (idx >= 0) dateQueue.splice(idx, 1);
   }
 
+  function leaveSpeeddate(userId: string) {
+    leaveQueue(userId);
+    return endDate(userId, "leave");
+  }
+
   function endDate(userId: string, reason: string) {
     const date = dates.get(userId);
     if (!date) return null;
     dates.delete(date.a);
     dates.delete(date.b);
+    const ua = get(date.a);
+    const ub = get(date.b);
+    if (ua) ua.dateTableId = null;
+    if (ub) ub.dateTableId = null;
     return { ...date, reason };
+  }
+
+  function getDate(userId: string) {
+    return dates.get(userId) || null;
+  }
+
+  function freeSpeedTable() {
+    const used = new Set<string>();
+    for (const date of dates.values()) used.add(date.tableId);
+    return world.speedTables.find((t) => !used.has(t.id)) || null;
+  }
+
+  function seatAtTable(user: User, table: { id: string; seatAx: number; seatAy: number; seatBx: number; seatBy: number }, slot: "a" | "b") {
+    user.sittingDeskId = null;
+    user.moving = false;
+    user.talkCircleId = null;
+    user.dateTableId = table.id;
+    user.status = "kennismaken";
+    user.pauseUntil = 0;
+    user.studyUntil = 0;
+    if (slot === "a") {
+      user.x = table.seatAx;
+      user.y = table.seatAy;
+    } else {
+      user.x = table.seatBx;
+      user.y = table.seatBy;
+    }
   }
 
   function pairScore(
@@ -613,11 +842,24 @@ export function createStore(world: World) {
         }
       }
       if (best < 0) continue;
+      const table = freeSpeedTable();
+      if (!table) break;
+      const b = dateQueue[best];
+      const partner = get(b.id);
+      if (!partner) continue;
       used.add(i);
       used.add(best);
-      const b = dateQueue[best];
+      seatAtTable(ua, table, "a");
+      seatAtTable(partner, table, "b");
       const ice = ICEBREAKERS[Math.floor(Math.random() * ICEBREAKERS.length)];
-      const date = { a: a.id, b: b.id, endsAt: now + DATE_MS, ice };
+      const date: DateMatch = {
+        a: a.id,
+        b: b.id,
+        endsAt: now + DATE_MS,
+        ice,
+        tableId: table.id,
+        tableLabel: table.label,
+      };
       dates.set(a.id, date);
       dates.set(b.id, date);
       started.push(date);
@@ -700,7 +942,9 @@ export function createStore(world: World) {
     getDms,
     joinQueue,
     leaveQueue,
+    leaveSpeeddate,
     endDate,
+    getDate,
     matchDates,
     flushMoves,
     expireBubbles,
@@ -711,7 +955,10 @@ export function createStore(world: World) {
     chatHistory,
     chatHistoryFor,
     nearbyIds,
+    chatAudience,
+    assignTalkCircles,
     tickPauses,
+    tickStudyTimers,
     hostSnapshot,
     kick,
     prune,

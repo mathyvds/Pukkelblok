@@ -327,7 +327,7 @@ function drawProgram(ctx: CanvasRenderingContext2D, info: Zone) {
   });
 }
 
-function drawLounge(ctx: CanvasRenderingContext2D, lounge: Zone) {
+function drawLounge(ctx: CanvasRenderingContext2D, lounge: Zone, world: PublicWorld) {
   ctx.fillStyle = "rgba(28, 18, 16, 0.28)";
   ctx.fillRect(lounge.x + 6, lounge.y + 8, lounge.w - 12, lounge.h - 16);
   ctx.fillStyle = PINK;
@@ -337,22 +337,10 @@ function drawLounge(ctx: CanvasRenderingContext2D, lounge: Zone) {
   ctx.globalAlpha = 1;
   ctx.fillStyle = "#e8d5a8";
   ctx.font = "500 12px Geist, sans-serif";
-  ctx.fillText("Zit. Adem. Daarna weer blokken.", lounge.x + 22, lounge.y + 56);
-  for (let i = 0; i < 6; i++) {
-    const y = 410 + i * 310;
-    roundRect(ctx, 68, y, 214, 86, 18, "#4a3028");
-    roundRect(ctx, 78, y + 10, 90, 48, 12, "#6a4038");
-    roundRect(ctx, 176, y + 10, 90, 48, 12, "#6a4038");
-    roundRect(ctx, 88, y + 18, 70, 28, 10, "#8a5850");
-    roundRect(ctx, 186, y + 18, 70, 28, 10, "#8a5850");
-    ctx.fillStyle = "rgba(232, 176, 96, 0.12)";
-    ctx.beginPath();
-    ctx.arc(175, y - 8, 28, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#c9b496";
-    ctx.beginPath();
-    ctx.arc(175, y - 10, 7, 0, Math.PI * 2);
-    ctx.fill();
+  ctx.fillText("Zit op de bank. Schuif aan. Geen timer.", lounge.x + 22, lounge.y + 56);
+  for (const s of world.seats.filter((seat) => seat.kind === "lounge")) {
+    roundRect(ctx, s.x, s.y, s.w, s.h + 10, 12, "#4a3028");
+    roundRect(ctx, s.x + 8, s.y + 6, s.w - 16, 22, 8, "#8a5850");
   }
 }
 
@@ -408,6 +396,13 @@ function drawSpeedCorner(ctx: CanvasRenderingContext2D, world: PublicWorld) {
     ctx.beginPath();
     ctx.arc(t.x + t.w / 2, t.y + 10, 6, 0, Math.PI * 2);
     ctx.fill();
+    if (t.seatAx) {
+      ctx.fillStyle = "#2a1e16";
+      ctx.beginPath();
+      ctx.ellipse(t.seatAx, t.seatAy + 4, 16, 7, 0, 0, Math.PI * 2);
+      ctx.ellipse(t.seatBx, t.seatBy + 4, 16, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 
@@ -435,14 +430,30 @@ export function drawStaticTent(ctx: CanvasRenderingContext2D, world: PublicWorld
   drawDeck(ctx, world.width, world.height);
   drawTentShell(ctx, world);
   const bar = zone(world, "bar");
+  const coffee = zone(world, "coffee");
   const stage = zone(world, "stage");
   const info = zone(world, "info");
   const lounge = zone(world, "lounge");
-  const stools = world.seats.filter((s) => s.kind === "stool");
+  const study = zone(world, "study");
+  const stools = (world.seats || []).filter((s) => s.kind === "stool");
+  if (study) {
+    ctx.fillStyle = "rgba(40, 32, 24, 0.12)";
+    ctx.fillRect(study.x, study.y, study.w, study.h);
+    ctx.fillStyle = "#c9b496";
+    ctx.font = "700 14px Geist, sans-serif";
+    ctx.fillText("Stilte  ·  blokzone", study.x + 24, study.y + 28);
+  }
+  if (coffee) {
+    ctx.fillStyle = "rgba(232, 176, 96, 0.08)";
+    ctx.fillRect(coffee.x + 8, coffee.y + 8, coffee.w - 16, coffee.h - 16);
+    ctx.fillStyle = "#e8d5a8";
+    ctx.font = "600 13px Geist, sans-serif";
+    ctx.fillText("Koffiehoek · hier mag je praten", coffee.x + 28, coffee.y + coffee.h - 18);
+  }
   if (bar) drawBar(ctx, bar, stools);
   if (stage) drawStage(ctx, stage);
   if (info) drawProgram(ctx, info);
-  if (lounge) drawLounge(ctx, lounge);
+  if (lounge) drawLounge(ctx, lounge, world);
   for (const d of world.desks) drawDesk(ctx, d);
   drawSpeedCorner(ctx, world);
   drawCrate(ctx, 92, 2268, 78, 54, "CREW");

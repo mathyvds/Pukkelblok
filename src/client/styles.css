@@ -176,6 +176,10 @@ kbd {
 .btn-primary.wide {
   width: 100%;
 }
+.btn-ghost.wide {
+  width: 100%;
+  margin-top: 0.4rem;
+}
 .btn-ghost {
   background: transparent;
   color: #fff;
@@ -732,6 +736,114 @@ kbd {
   font-size: 0.78rem;
   font-weight: 800;
 }
+.study-timer {
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(147, 197, 253, 0.45);
+  color: #93c5fd;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+.study-mins {
+  display: flex;
+  gap: 4px;
+}
+.study-mins button {
+  background: #111;
+  color: #93c5fd;
+  border: 1px solid #334;
+  border-radius: 4px;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.study-mins button:hover {
+  background: #1a2744;
+}
+#minimap {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 6;
+  width: 176px;
+  height: 136px;
+  border: 2px solid var(--color-pkp);
+  border-radius: 8px;
+  background: #070707;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+#date-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 8;
+  width: min(280px, 70%);
+  background: rgba(10, 10, 10, 0.92);
+  border: 2px solid var(--color-pkp);
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+  text-align: left;
+}
+.date-hud-kicker {
+  color: var(--color-pkp);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+#date-hud-title {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  letter-spacing: 0.04em;
+}
+#date-hud-ice {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  margin: 0.35rem 0 0.5rem;
+}
+#date-hud-timer {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  color: var(--color-pkp);
+  margin-bottom: 0.5rem;
+}
+#date-hud .btn-ghost {
+  width: 100%;
+}
+.person .shh {
+  position: absolute;
+  left: 50%;
+  bottom: 86px;
+  transform: translateX(-50%);
+  background: #1e3a5f;
+  color: #93c5fd;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.person .shh[hidden] {
+  display: none;
+}
+.person.silent .face {
+  border-color: #3b82f6;
+  filter: saturate(0.75);
+}
+.person.in-circle .nametag {
+  border-color: #e91e8c;
+}
+.chat-input-wrap input:disabled,
+#chat-shout:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 #announce-banner {
   position: absolute;
   top: 12px;
@@ -908,6 +1020,12 @@ kbd {
   }
   #notifs {
     right: 12px;
+  }
+  #minimap {
+    width: 128px;
+    height: 100px;
+    right: 8px;
+    bottom: 8px;
   }
   #top-hud {
     flex-wrap: wrap;

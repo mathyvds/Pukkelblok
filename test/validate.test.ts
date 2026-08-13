@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateNames, parseAvatar, validateChat, shirtColor } from "../src/shared/validate";
-import { createWorld, clampMove, deskById, PLAYER_R } from "../src/shared/world";
+import { createWorld, clampMove, deskById, inZone, PLAYER_R } from "../src/shared/world";
 import { createStore } from "../src/server/store";
 import { DESK_COUNT, joinSchema } from "../src/shared/protocol";
 
@@ -265,4 +265,97 @@ test("reconnect binnen grace is geen nieuwe join-aankondiging", () => {
   store.finishDisconnect(a.user.id);
   const third = store.connect(a.user.id, "s3");
   assert.equal(third?.announceJoin, true);
+});
+
+test("wereld heeft koffiehoek, praatcirkels en tafelzitjes", () => {
+  const world = createWorld();
+  assert.ok(world.zones.some((z) => z.id === "coffee"));
+  assert.ok(world.talkCircles.length >= 8);
+  assert.equal(world.talkCircles[0].max, 4);
+  assert.ok(world.speedTables[0].seatAx);
+  assert.ok(inZone(world, 120, 220, "coffee"));
+  assert.equal(inZone(world, 120, 220, "study"), false);
+});
+
+test("studeermodus blokkeert chat en shout", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 5 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  const speak = store.addChat(a.user, "psst", "speak");
+  const shout = store.addChat(a.user, "hallo tent", "shout");
+  assert.ok("error" in speak);
+  assert.ok("error" in shout);
+  store.setStatus(a.user.id, "kennismaken", "");
+  a.user.x = 120;
+  a.user.y = 220;
+  const ok = store.addChat(a.user, "koffie?", "speak");
+  assert.ok("msg" in ok);
+  if ("msg" in ok) assert.equal(ok.msg.scope, "coffee");
+});
+
+test("bloktimer zet je na afloop op pauze", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 8 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  store.setStatus(a.user.id, "studeren", "", 25);
+  assert.ok((a.user.studyUntil || 0) > Date.now());
+  a.user.studyUntil = Date.now() - 10;
+  const ended = store.tickStudyTimers();
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].status, "pauze");
+});
+
+test("lounge-praatcirkel deelt chat zonder matching", () => {
+  const store = createStore(createWorld());
+  const world = store.world;
+  const circle = world.talkCircles[0];
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } }));
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.setStatus(a.user.id, "kennismaken", "");
+  store.setStatus(b.user.id, "kennismaken", "");
+  store.stand(a.user.id);
+  store.stand(b.user.id);
+  a.user.x = circle.x;
+  a.user.y = circle.y;
+  b.user.x = circle.x + 20;
+  b.user.y = circle.y;
+  const changed = store.assignTalkCircles();
+  assert.ok(changed.length >= 2);
+  assert.equal(a.user.talkCircleId, circle.id);
+  assert.equal(b.user.talkCircleId, circle.id);
+  const chat = store.addChat(a.user, "hey", "speak");
+  assert.ok("msg" in chat && chat.msg.scope === "circle");
+  if ("ids" in chat) {
+    assert.ok(chat.ids.includes(a.user.id));
+    assert.ok(chat.ids.includes(b.user.id));
+  }
+});
+
+test("speeddate zet jullie aan een tafel in de tent", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } }));
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.setStatus(a.user.id, "kennismaken", "");
+  store.setStatus(b.user.id, "kennismaken", "");
+  store.joinQueue(a.user.id);
+  store.joinQueue(b.user.id);
+  const { started } = store.matchDates();
+  assert.equal(started.length, 1);
+  assert.ok(started[0].tableId);
+  assert.equal(a.user.dateTableId, started[0].tableId);
+  assert.equal(b.user.dateTableId, started[0].tableId);
+  const table = store.world.speedTables.find((t) => t.id === started[0].tableId);
+  assert.ok(table);
+  assert.equal(a.user.x, table?.seatAx);
+  assert.equal(b.user.x, table?.seatBx);
+  const chat = store.addChat(a.user, "hoi", "speak");
+  assert.ok("msg" in chat && chat.msg.scope === "date");
 });
