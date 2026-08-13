@@ -37,7 +37,9 @@ COOKIE_SECRET=kies-iets-geheims npm start
 
 ## Wat zit erin
 
-- Gastlogin met voornaam + familienaam (cookie, 7 dagen)
+- Gastlogin met voornaam, familienaam, leeftijd, school en studierichting (cookie, 7 dagen)
+- Bureaunummer 1–24 bij joinen = dezelfde tafel als in de echte tent; je start daar in studeermodus
+- Status **Studeren** zet je terug aan jouw bureau; Pauze of Kennismaken om rond te lopen
 - Avatar: foto nemen, uploaden, of een look kiezen
 - Tot 100 studenten, WASD / klik / touch
 - Bureaus 1–24, tentchat met tekst boven de avatar, DMs, speeddate
