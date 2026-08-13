@@ -25,7 +25,7 @@
         <button class="btn-primary" id="btn-enter">Kom de tent in</button>
       </div>
       <ul class="hero-points">
-        <li>Tot 100 studenten</li>
+        <li>Tot 100 studenten, 100 bureaus</li>
         <li>Loop rond, zit aan een bureau</li>
         <li>Chat + privéberichten</li>
         <li>Speeddate-hoek</li>
@@ -100,10 +100,11 @@
         <img id="me-face" alt=""/>
         <span id="me-name"></span>
       </div>
+      <span id="pause-timer" class="pause-timer" hidden>Pauze 10:00</span>
       <select id="status-select" title="Status">
         <option value="kennismaken">Klaar om kennis te maken</option>
         <option value="studeren">Studeren</option>
-        <option value="pauze">Pauze</option>
+        <option value="pauze">Pauze (10 min)</option>
       </select>
       <button class="btn-hud" id="btn-speeddate">Speeddate</button>
       <button class="btn-hud" id="btn-logout">Uitloggen</button>
@@ -112,6 +113,7 @@
     <div id="game-main">
       <div id="viewport">
         <canvas id="world"></canvas>
+        <div id="announce-banner" hidden></div>
         <div id="world-dom">
           <div id="avatars"></div>
         </div>
@@ -137,8 +139,9 @@
         <div class="tab-pane" id="tab-chat">
           <div id="chat-msgs"></div>
           <form class="chat-input-wrap" id="chat-form">
-            <input id="chat-in" maxlength="200" autocomplete="off" placeholder="Zeg iets in de tent…"/>
-            <button type="submit">➤</button>
+            <input id="chat-in" maxlength="200" autocomplete="off" placeholder="Zeg iets tegen wie in de buurt is…"/>
+            <button type="submit" title="Stuur naar wie dichtbij staat">➤</button>
+            <button type="button" id="chat-shout" title="Roep naar de hele tent (1× per minuut)">📣</button>
           </form>
         </div>
         <div class="tab-pane" id="tab-dm">
@@ -159,7 +162,7 @@
     </div>
 
     <footer id="bot-hud">
-      <span>Beweeg met <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> of klik in de tent. Klik een bureau om te zitten.</span>
+      <span>Beweeg met <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> of klik. Chat is in de buurt; 📣 is de hele tent.</span>
       <span id="desk-hint"></span>
     </footer>
   </div>
@@ -180,6 +183,10 @@
     <div class="modal" role="dialog">
       <h3>Speeddate</h3>
       <p id="date-copy">Drie minuten, één iemand, één ijsbreker. Daarna mag je verder chatten.</p>
+      <label class="check-row">
+        <input type="checkbox" id="date-same-study"/>
+        Liever iemand met dezelfde studierichting
+      </label>
       <p class="ice" id="date-ice" hidden></p>
       <p class="date-timer" id="date-timer" hidden></p>
       <div class="date-actions">

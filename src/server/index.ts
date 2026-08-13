@@ -20,6 +20,8 @@ const ROOT = path.resolve(__dirname, "../..");
 const PORT = Number(process.env.PORT) || 3000;
 const COOKIE_SECRET = process.env.COOKIE_SECRET || "blokbar-dev-secret-change-me";
 const COOKIE = "blokbar";
+const HOST_COOKIE = "blokbar-host";
+const HOST_PIN = String(process.env.HOST_PIN || "").trim();
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const isProd = process.env.NODE_ENV === "production";
 
@@ -48,6 +50,32 @@ function setSessionCookie(res: express.Response, sid: string) {
     maxAge: WEEK_MS,
     path: "/",
   });
+}
+
+function setHostCookie(res: express.Response) {
+  res.cookie(HOST_COOKIE, "ok", {
+    httpOnly: true,
+    signed: true,
+    sameSite: "lax",
+    secure: process.env.COOKIE_SECURE === "true",
+    maxAge: WEEK_MS,
+    path: "/",
+  });
+}
+
+function isHost(req: express.Request) {
+  return Boolean(HOST_PIN) && req.signedCookies[HOST_COOKIE] === "ok";
+}
+
+function requireHost(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!HOST_PIN) return res.status(503).json({ error: "HOST_PIN is niet ingesteld op de server." });
+  if (!isHost(req)) return res.status(401).json({ error: "Niet ingelogd als host." });
+  next();
+}
+
+function emitToSocket(userId: string, fn: (socketId: string) => void) {
+  const target = store.get(userId);
+  if (target?.socketId) fn(target.socketId);
 }
 
 app.get("/api/health", (_req, res) => {
@@ -99,6 +127,56 @@ app.post("/api/logout", (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/api/host/status", (req, res) => {
+  res.json({ configured: Boolean(HOST_PIN), authed: isHost(req) });
+});
+
+app.post("/api/host/login", (req, res) => {
+  if (!HOST_PIN) return res.status(503).json({ error: "HOST_PIN is niet ingesteld." });
+  const pin = String(req.body?.pin || "").trim();
+  if (pin !== HOST_PIN) return res.status(401).json({ error: "Verkeerde host-code." });
+  setHostCookie(res);
+  res.json({ ok: true, state: store.hostSnapshot() });
+});
+
+app.post("/api/host/logout", (_req, res) => {
+  res.clearCookie(HOST_COOKIE, { path: "/" });
+  res.json({ ok: true });
+});
+
+app.get("/api/host/state", requireHost, (_req, res) => {
+  res.json(store.hostSnapshot());
+});
+
+app.post("/api/host/kick", requireHost, (req, res) => {
+  const result = store.kick(String(req.body?.id || ""));
+  if ("error" in result) return res.status(404).json({ error: result.error });
+  if (result.socketId) {
+    const sock = io.sockets.sockets.get(result.socketId);
+    sock?.emit("kicked", { reason: "De host heeft je uit de tent gezet." });
+    sock?.disconnect(true);
+  }
+  io.to("tent").emit("player:leave", { id: result.id });
+  io.to("tent").emit("presence", { online: store.onlineCount(), max: MAX_ONLINE });
+  if (result.endedDate) {
+    const other = result.endedDate.a === result.id ? result.endedDate.b : result.endedDate.a;
+    emitToSocket(other, (id) => io.to(id).emit("speeddate:ended", { reason: "kick" }));
+  }
+  io.to("tent").emit("announce", { text: `${result.name} is uit de tent gezet.`, at: Date.now() });
+  res.json({ ok: true, state: store.hostSnapshot() });
+});
+
+app.post("/api/host/announce", requireHost, (req, res) => {
+  const parsed = validateChat(req.body?.text);
+  if ("error" in parsed) return res.status(400).json({ error: parsed.error });
+  io.to("tent").emit("announce", { text: parsed.text, at: Date.now() });
+  res.json({ ok: true });
+});
+
+app.get("/host", (_req, res) => {
+  res.sendFile(path.join(ROOT, "public/host.html"));
+});
+
 app.get("/media/avatar/:id", (req, res) => {
   const file = store.avatarOf(req.params.id);
   if (!file) return res.status(404).end();
@@ -130,7 +208,7 @@ io.on("connection", (socket) => {
   socket.emit("hello", {
     you: store.publicUser(user),
     players: store.listOnline(),
-    chat: store.chatHistory(),
+    chat: store.chatHistoryFor(user.id),
     world: publicWorld(world),
     online: store.onlineCount(),
     max: MAX_ONLINE,
@@ -161,7 +239,11 @@ io.on("connection", (socket) => {
 
   socket.on("typing", (data) => {
     const payload = store.setTyping(userId, Boolean(data?.typing), String(data?.draft || ""));
-    if (payload) socket.broadcast.to("tent").emit("player:typing", payload);
+    if (payload) {
+      for (const id of store.nearbyIds(userId)) {
+        emitToSocket(id, (sid) => io.to(sid).emit("player:typing", payload));
+      }
+    }
   });
 
   socket.on("chat", (text) => {
@@ -169,9 +251,30 @@ io.on("connection", (socket) => {
     if ("error" in parsed) return;
     const me = store.get(userId);
     if (!me) return;
-    const msg = store.addChat(me, parsed.text);
-    io.to("tent").emit("chat", msg);
-    io.to("tent").emit("player:update", store.publicUser(me));
+    const result = store.addChat(me, parsed.text, "near");
+    if ("error" in result) {
+      if (result.error !== "silent") socket.emit("notice", { type: "error", text: result.error });
+      return;
+    }
+    for (const id of store.nearbyIds(userId)) {
+      emitToSocket(id, (sid) => {
+        io.to(sid).emit("chat", result.msg);
+        io.to(sid).emit("player:update", store.publicUser(me));
+      });
+    }
+  });
+
+  socket.on("shout", (text) => {
+    const parsed = validateChat(text);
+    if ("error" in parsed) return;
+    const me = store.get(userId);
+    if (!me) return;
+    const result = store.addChat(me, parsed.text, "tent");
+    if ("error" in result) {
+      socket.emit("notice", { type: "error", text: result.error });
+      return;
+    }
+    io.to("tent").emit("chat", result.msg);
   });
 
   socket.on("dm:open", (otherId) => {
@@ -191,11 +294,10 @@ io.on("connection", (socket) => {
     socket.emit("dm", result.msg);
     const other = store.get(result.to.id);
     if (other?.socketId) io.to(other.socketId).emit("dm", result.msg);
-    io.to("tent").emit("player:update", store.publicUser(me));
   });
 
-  socket.on("speeddate:join", () => {
-    const result = store.joinQueue(userId);
+  socket.on("speeddate:join", (data) => {
+    const result = store.joinQueue(userId, Boolean(data?.preferSameStudy));
     if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
     socket.emit("speeddate:queued", result);
   });
@@ -225,6 +327,12 @@ setInterval(() => {
 setInterval(() => {
   const expired = store.expireBubbles();
   for (const id of expired) io.to("tent").emit("player:bubble-end", { id });
+  for (const pub of store.tickPauses()) {
+    io.to("tent").emit("player:update", pub);
+    emitToSocket(pub.id, (sid) =>
+      io.to(sid).emit("notice", { type: "pause-end", text: "Pauze voorbij — terug aan de blok." })
+    );
+  }
   const { started, ended, waiting } = store.matchDates();
   for (const date of started) {
     const a = store.get(date.a);

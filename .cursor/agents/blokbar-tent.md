@@ -12,7 +12,7 @@ When invoked:
 4. Profiles show leeftijd, school, studierichting, and bureau number so students can meet each other.
 5. Do not reintroduce university branding, penguins, Firebase, XP, or game rooms.
 6. Keep TypeScript shared protocol types in sync between `src/shared`, `src/server`, and `src/client`.
-7. Prefer one tent, Socket.IO, and at most 100 concurrent guests.
+7. Prefer one tent, Socket.IO, 100 numbered desks, and at most 100 concurrent guests.
 
 Hasselt schools you may offer: PXL, UCLL, Universiteit Hasselt, Andere.
 

@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateNames, parseAvatar, validateChat, shirtColor } from "../src/shared/validate";
-import { createWorld, clampMove, PLAYER_R } from "../src/shared/world";
+import { createWorld, clampMove, deskById, PLAYER_R } from "../src/shared/world";
 import { createStore } from "../src/server/store";
-import { joinSchema } from "../src/shared/protocol";
+import { DESK_COUNT, joinSchema } from "../src/shared/protocol";
 
 test("namen: Nederlandse letters en koppeltekens", () => {
   const ok = validateNames("José", "Van der Berg");
@@ -111,4 +111,31 @@ test("speeddate koppelt twee wachtenden", () => {
   const { started } = store.matchDates();
   assert.equal(started.length, 1);
   assert.ok(started[0].ice.length > 0);
+});
+
+test("wereld heeft 100 bureaus", () => {
+  const world = createWorld();
+  assert.equal(world.desks.length, DESK_COUNT);
+  assert.equal(DESK_COUNT, 100);
+  assert.ok(deskById(world, 1));
+  assert.ok(deskById(world, 100));
+  assert.equal(deskById(world, 101), null);
+});
+
+test("zitten aan bureau 100", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 100 }));
+  if (!("user" in a)) throw new Error("expected user");
+  assert.equal(a.user.homeDeskId, 100);
+  assert.equal(a.user.sittingDeskId, 100);
+});
+
+test("privébericht komt niet als spraakwolk", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } }));
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  const result = store.addDm(a.user, b.user.id, "geheim");
+  assert.ok("msg" in result);
+  assert.equal(a.user.bubble, "");
 });

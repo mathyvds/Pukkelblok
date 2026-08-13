@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Blokbar host</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/styles.css"/>
+  <style>
+    body{overflow:auto;background:#110e14}
+    .host{max-width:1100px;margin:0 auto;padding:1.4rem 1rem 3rem}
+    .host h1{font-family:var(--display);font-size:3rem;letter-spacing:.04em}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:1rem 0}
+    .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.8rem;text-align:center}
+    .stat b{display:block;font-size:1.4rem;color:var(--yellow)}
+    .desk-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;margin:1rem 0}
+    .desk{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.4rem .2rem;font-size:.68rem;text-align:center}
+    .desk.taken{border-color:var(--pink);background:rgba(233,30,140,.12)}
+    table{width:100%;border-collapse:collapse;font-size:.85rem}
+    th,td{text-align:left;padding:.45rem .4rem;border-bottom:1px solid var(--line)}
+    .kick{background:rgba(233,30,140,.2);color:#fff;border-radius:8px;padding:.25rem .55rem;font-size:.75rem;font-weight:700}
+    .announce{display:flex;gap:8px;margin:1rem 0}
+    .announce input{flex:1;background:#0c0a10;border:1px solid var(--line);border-radius:10px;color:#fff;padding:.7rem .8rem}
+    .pin-card{width:min(380px,92vw);margin:18vh auto;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:1.4rem}
+    .warn{color:#ffb4b4;font-size:.85rem;min-height:1.2rem}
+    @media (max-width:700px){
+      .stats{grid-template-columns:repeat(2,1fr)}
+      .desk-grid{grid-template-columns:repeat(5,1fr)}
+    }
+  </style>
+</head>
+<body>
+  <div id="login" class="pin-card">
+    <h1>Host</h1>
+    <p class="join-note">Alleen voor de laptop aan de infostand. Zet <code>HOST_PIN</code> op de server.</p>
+    <label>Host-code
+      <input id="pin" type="password" autocomplete="current-password"/>
+    </label>
+    <p class="warn" id="login-error"></p>
+    <button class="btn-primary wide" id="btn-login">Open dashboard</button>
+  </div>
+
+  <div id="dash" class="host" hidden>
+    <header style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h1>Blok<span>bar</span> host</h1>
+      <div class="hud-sep"></div>
+      <button class="btn-hud" id="btn-refresh">Vernieuwen</button>
+      <button class="btn-hud" id="btn-logout">Uitloggen</button>
+    </header>
+    <div class="stats">
+      <div class="stat"><b id="s-online">0</b>in de tent</div>
+      <div class="stat"><b id="s-desks">0</b>bureaus bezet</div>
+      <div class="stat"><b id="s-wait">0</b>speeddate-rij</div>
+      <div class="stat"><b id="s-dates">0</b>dates nu</div>
+    </div>
+    <form class="announce" id="announce-form">
+      <input id="announce-in" maxlength="200" placeholder="Omroep naar de hele tent…"/>
+      <button class="btn-primary" type="submit">Omroep</button>
+    </form>
+    <h2>Bureaus 1–100</h2>
+    <div class="desk-grid" id="desks"></div>
+    <h2>Aanwezig</h2>
+    <table>
+      <thead><tr><th>Naam</th><th>Vak</th><th>Status</th><th>Bureau</th><th></th></tr></thead>
+      <tbody id="people"></tbody>
+    </table>
+  </div>
+  <script src="/host.js"></script>
+</body>
+</html>

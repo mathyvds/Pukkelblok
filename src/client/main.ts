@@ -265,6 +265,7 @@ function enterTent(user: PublicPlayer) {
   ($("me-face") as HTMLImageElement).src = user.avatarUrl;
   ($("status-select") as HTMLSelectElement).value = user.status || "studeren";
   ui.deskHint.textContent = user.homeDeskId ? `Jouw bureau: ${user.homeDeskId}` : "";
+  syncPauseClock(user);
   world.mount({
     canvas: $("world") as HTMLCanvasElement,
     viewport: $("viewport"),
@@ -349,6 +350,7 @@ function connectSocket() {
         if (merged.sittingDeskId) ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
         else if (merged.homeDeskId) ui.deskHint.textContent = `Jouw bureau: ${merged.homeDeskId}`;
         ($("status-select") as HTMLSelectElement).value = merged.status;
+        syncPauseClock(merged);
     }
     renderOnline();
   });
@@ -374,7 +376,18 @@ function connectSocket() {
     state.dms.set(otherId, messages);
     if (state.dmTarget === otherId) renderDm();
   });
-  socket.on("notice", (n) => notify(n.text));
+  socket.on("notice", (n) => {
+    notify(n.text);
+    if (n.type === "pause-end") {
+      ($("status-select") as HTMLSelectElement).value = "studeren";
+      syncPauseClock({ ...state.me!, status: "studeren", pauseUntil: 0 });
+    }
+  });
+  socket.on("announce", (a) => showAnnounce(a.text));
+  socket.on("kicked", (k) => {
+    notify(k.reason || "Je bent uit de tent gezet.");
+    setTimeout(() => location.reload(), 1200);
+  });
   socket.on("speeddate:queued", (q) => {
     $("date-copy").textContent = q.queued
       ? `Je staat in de rij (${q.position}). We koppelen je zodra er iemand klaar is.`
@@ -406,12 +419,13 @@ function connectSocket() {
   });
 }
 
-function addChatLine(msg: { from: string; firstName: string; text: string; at: number }) {
+function addChatLine(msg: { from: string; firstName: string; text: string; at: number; scope?: "near" | "tent" }) {
   const mine = msg.from === state.me?.id;
   const el = document.createElement("div");
   el.className = "chat-msg" + (mine ? " me" : "");
   const time = new Date(msg.at).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" });
-  el.innerHTML = `<div class="msg-head"><span class="msg-name">${esc(msg.firstName)}</span><span class="msg-time">${time}</span></div><div class="msg-body">${esc(msg.text)}</div>`;
+  const scope = msg.scope === "tent" ? `<span class="msg-scope">hele tent</span>` : "";
+  el.innerHTML = `<div class="msg-head"><span class="msg-name">${esc(msg.firstName)}</span>${scope}<span class="msg-time">${time}</span></div><div class="msg-body">${esc(msg.text)}</div>`;
   ui.chatMsgs.appendChild(el);
   ui.chatMsgs.scrollTop = ui.chatMsgs.scrollHeight;
 }
@@ -513,6 +527,17 @@ $("chat-form").addEventListener("submit", (e) => {
   state.socket?.emit("typing", { typing: false, draft: "" });
 });
 
+$("chat-shout").addEventListener("click", () => {
+  const text = ui.chatIn.value.trim();
+  if (!text) {
+    notify("Typ eerst een bericht, daarna 📣 voor de hele tent.");
+    return;
+  }
+  state.socket?.emit("shout", text);
+  ui.chatIn.value = "";
+  state.socket?.emit("typing", { typing: false, draft: "" });
+});
+
 ui.chatIn.addEventListener("input", () => {
   const now = Date.now();
   if (now - state.lastTyping < 120) return;
@@ -552,7 +577,11 @@ $("status-select").addEventListener("change", () => {
 
 $("btn-speeddate").addEventListener("click", () => $("modal-date").classList.add("open"));
 $("date-close").addEventListener("click", () => $("modal-date").classList.remove("open"));
-$("date-join").addEventListener("click", () => state.socket?.emit("speeddate:join"));
+$("date-join").addEventListener("click", () =>
+  state.socket?.emit("speeddate:join", {
+    preferSameStudy: ($("date-same-study") as HTMLInputElement).checked,
+  })
+);
 $("date-leave").addEventListener("click", () => state.socket?.emit("speeddate:leave"));
 $("profile-close").addEventListener("click", () => $("modal-profile").classList.remove("open"));
 
@@ -566,6 +595,38 @@ function tickDate(endsAt: number) {
   };
   tick();
   state.dateTimer = setInterval(tick, 250);
+}
+
+let pauseClock: ReturnType<typeof setInterval> | 0 = 0;
+function syncPauseClock(user: PublicPlayer) {
+  clearInterval(pauseClock);
+  const el = $("pause-timer");
+  if (user.status !== "pauze" || !user.pauseUntil) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const tick = () => {
+    const left = Math.max(0, user.pauseUntil - Date.now());
+    const m = Math.floor(left / 60000);
+    const s = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
+    el.textContent = `Pauze ${m}:${s}`;
+    if (left <= 0) {
+      clearInterval(pauseClock);
+      el.hidden = true;
+    }
+  };
+  tick();
+  pauseClock = setInterval(tick, 250);
+}
+
+function showAnnounce(text: string) {
+  const banner = $("announce-banner");
+  banner.hidden = false;
+  banner.textContent = text;
+  window.setTimeout(() => {
+    banner.hidden = true;
+  }, 8000);
 }
 
 $("btn-logout").addEventListener("click", async () => {

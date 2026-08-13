@@ -32,21 +32,24 @@ Productie:
 
 ```bash
 npm run build
-COOKIE_SECRET=kies-iets-geheims npm start
+COOKIE_SECRET=kies-iets-geheims HOST_PIN=kies-een-code npm start
 ```
+
+Host-dashboard: http://localhost:3000/host
 
 ## Wat zit erin
 
 - Gastlogin met voornaam, familienaam, leeftijd, school en studierichting (cookie, 7 dagen)
-- Bureaunummer 1–24 bij joinen = dezelfde tafel als in de echte tent; je start daar in studeermodus
-- Status **Studeren** zet je terug aan jouw bureau; Pauze of Kennismaken om rond te lopen
+- **Bureaus 1–100** bij joinen = dezelfde tafel als in de echte tent; je start daar in studeermodus
+- Status **Studeren** zet je terug aan jouw bureau; **Pauze (10 min)** daarna terug naar blokken; Kennismaken om rond te lopen
 - Avatar: foto nemen, uploaden, of een look kiezen
 - Tot 100 studenten, WASD / klik / touch
-- Bureaus 1–24, tentchat met tekst boven de avatar, DMs, speeddate
+- **Proximity-chat** (dichtbij) + 📣 hele tent; DMs lekken niet als spraakwolk
+- Speeddate, optioneel dezelfde studierichting eerst
+- Host (`/host`): kick, omroep, bezetting 1–100
 
 ## Aanbevelingen
 
 - Host lokaal op tent-wifi als clients van elkaar geïsoleerd zijn
-- Zet bureau-nummers 1–24 op de echte tafels
+- Zet bureau-nummers 1–100 op de echte tafels
 - Nog niet: voice, XP, minigames
-- Later: proximity-chat, vak-filter, pauze-timer, host-kick

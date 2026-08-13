@@ -10,7 +10,12 @@ export type Status = (typeof statuses)[number];
 export const SCHOOLS = ["PXL", "UCLL", "Universiteit Hasselt", "Andere"] as const;
 export type School = (typeof SCHOOLS)[number];
 
-export const DESK_COUNT = 24;
+export const DESK_COUNT = 100;
+export const PROXIMITY = 420;
+export const PAUSE_MS = 10 * 60 * 1000;
+export const CHAT_COOLDOWN_MS = 700;
+export const SHOUT_COOLDOWN_MS = 60_000;
+export const DATE_WAIT_FALLBACK_MS = 45_000;
 
 export type PublicPlayer = {
   id: string;
@@ -29,6 +34,7 @@ export type PublicPlayer = {
   program: string;
   status: Status;
   statusText: string;
+  pauseUntil: number;
   typing: boolean;
   draft: string;
   bubble: string;
@@ -41,6 +47,7 @@ export type ChatMessage = {
   firstName: string;
   lastName: string;
   text: string;
+  scope: "near" | "tent";
   at: number;
 };
 
@@ -100,6 +107,8 @@ export type PublicWorld = {
   desks: Desk[];
   speedTables: SpeedTable[];
   zones: Zone[];
+  proximity: number;
+  pauseMs: number;
 };
 
 export type HelloPayload = {
@@ -118,9 +127,10 @@ export type ClientToServerEvents = {
   status: (data: { status: Status; statusText?: string }) => void;
   typing: (data: { typing: boolean; draft: string }) => void;
   chat: (text: string) => void;
+  shout: (text: string) => void;
   "dm:open": (otherId: string) => void;
   dm: (data: { to: string; text: string }) => void;
-  "speeddate:join": () => void;
+  "speeddate:join": (data?: { preferSameStudy?: boolean }) => void;
   "speeddate:leave": () => void;
 };
 
@@ -132,12 +142,14 @@ export type ServerToClientEvents = {
   "player:update": (player: PublicPlayer) => void;
   "player:correct": (player: PublicPlayer) => void;
   "players:moves": (moves: PlayerMove[]) => void;
-  "player:typing": (payload: { id: string; typing: boolean; draft: string }) => void;
+  "player:typing": (payload: { id: string; typing: boolean; draft: string; x?: number; y?: number }) => void;
   "player:bubble-end": (payload: { id: string }) => void;
   chat: (msg: ChatMessage) => void;
   dm: (msg: DirectMessage) => void;
   "dm:history": (payload: { with: string; messages: DirectMessage[] }) => void;
   notice: (payload: { type: string; text: string }) => void;
+  announce: (payload: { text: string; at: number }) => void;
+  kicked: (payload: { reason: string }) => void;
   "speeddate:queued": (payload: { queued: boolean; position: number }) => void;
   "speeddate:matched": (payload: {
     partner: PublicPlayer;
