@@ -1,0 +1,17 @@
+{
+  "name": "Blokbar (PKP26)",
+  "install": "npm ci",
+  "terminals": [
+    {
+      "name": "dev-server",
+      "command": "npm run dev",
+      "description": "Blokbar dev server: Express + Socket.IO with Vite as middleware on http://localhost:3000. Set HOST_PIN in the environment to enable the /host dashboard."
+    }
+  ],
+  "ports": [
+    {
+      "name": "app",
+      "port": 3000
+    }
+  ]
+}
