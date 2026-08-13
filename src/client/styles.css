@@ -391,6 +391,29 @@ kbd {
   padding: 0.4rem 0.5rem;
   font-size: 0.78rem;
 }
+#status-text {
+  width: 168px;
+  background: #111;
+  color: #fff;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.78rem;
+}
+.block-btns {
+  display: flex;
+  gap: 4px;
+}
+.block-btns .btn-hud.on {
+  background: #1e3a5f;
+  border-color: #3b82f6;
+  color: #dbeafe;
+}
+.pause-timer.block-clock {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #93c5fd;
+}
 
 #game-main {
   flex: 1;
@@ -538,18 +561,39 @@ kbd {
 .person .nametag {
   position: absolute;
   left: 50%;
-  bottom: -6px;
+  bottom: -18px;
   transform: translateX(-50%);
   background: #000;
   border: 1px solid #333;
-  border-radius: 999px;
-  padding: 2px 8px;
+  border-radius: 10px;
+  padding: 3px 8px;
   font-size: 0.68rem;
   font-weight: 700;
   white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
 }
 .person.me .nametag {
   border-color: var(--color-pkp);
+}
+.person.dnd .nametag {
+  border-color: #3b82f6;
+}
+.person .nm-extra {
+  display: none;
+  font-size: 0.55rem;
+  font-weight: 800;
+  color: #9ca3af;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.person.has-extra .nm-extra {
+  display: block;
+}
+.person.dnd .nm-extra {
+  color: #93c5fd;
 }
 .person .st-dot {
   position: absolute;
@@ -596,6 +640,49 @@ kbd {
 .tab-pane.on {
   display: flex;
 }
+.online-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid #222;
+}
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.fchip {
+  background: #1a1a1a;
+  color: #bbb;
+  border: 1px solid #333;
+  border-radius: 999px;
+  padding: 0.22rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.fchip.on {
+  background: var(--color-pkp);
+  color: #111;
+  border-color: var(--color-pkp);
+}
+.online-filters select {
+  width: 100%;
+  background: #111;
+  color: #fff;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.75rem;
+}
+.filter-near {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #c8c8c8;
+}
 .online-list,
 #chat-msgs,
 #dm-msgs {
@@ -617,6 +704,9 @@ kbd {
 }
 .online-user:hover {
   background: #1a1a1a;
+}
+.online-user.dnd .u-stat {
+  color: #93c5fd;
 }
 .online-user img {
   width: 36px;
@@ -680,6 +770,11 @@ kbd {
   border-radius: 6px;
   color: #fff;
   padding: 8px 10px;
+}
+.chat-input-wrap input:disabled,
+.chat-input-wrap button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .chat-input-wrap button {
   width: 36px;

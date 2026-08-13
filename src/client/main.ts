@@ -51,6 +51,11 @@ const ui = {
   dmEmpty: $("dm-empty"),
   dmBadge: $("dm-badge"),
   deskHint: $("desk-hint"),
+  statusText: $("status-text") as HTMLInputElement,
+  filterSchool: $("filter-school") as HTMLSelectElement,
+  filterProgram: $("filter-program") as HTMLSelectElement,
+  filterNear: $("filter-near") as HTMLInputElement,
+  chatShout: $("chat-shout") as HTMLButtonElement,
 };
 
 const state = {
@@ -65,6 +70,8 @@ const state = {
   dateTimer: 0 as number | ReturnType<typeof setInterval>,
   camStream: null as MediaStream | null,
   lastTyping: 0,
+  filters: { status: "" as "" | Status, school: "", program: "", near: false },
+  filterKeys: { schools: "", programs: "" },
 };
 
 function show(name: Screen) {
@@ -87,7 +94,7 @@ function fullName(p: PublicPlayer) {
 function statusLabel(p: PublicPlayer) {
   const map: Record<Status, string> = {
     kennismaken: "Klaar om kennis te maken",
-    studeren: "Aan het studeren",
+    studeren: "Niet storen",
     pauze: "Pauze",
   };
   const base = map[p.status] || "In de tent";
@@ -265,8 +272,10 @@ function enterTent(user: PublicPlayer) {
   $("me-name").textContent = user.firstName;
   ($("me-face") as HTMLImageElement).src = user.avatarUrl;
   ($("status-select") as HTMLSelectElement).value = user.status || "studeren";
+  ui.statusText.value = user.statusText || "";
   ui.deskHint.textContent = user.homeDeskId ? `Jouw bureau: ${user.homeDeskId}` : "";
-  syncPauseClock(user);
+  syncHudClock(user);
+  syncStudyMute(user);
   world.mount({
     canvas: $("world") as HTMLCanvasElement,
     viewport: $("viewport"),
@@ -321,6 +330,10 @@ function connectSocket() {
     }
     $("online-count").textContent = String(payload.online);
     $("max-count").textContent = String(payload.max);
+    ($("status-select") as HTMLSelectElement).value = payload.you.status;
+    if (document.activeElement !== ui.statusText) ui.statusText.value = payload.you.statusText || "";
+    syncHudClock(payload.you);
+    syncStudyMute(payload.you);
     ui.chatMsgs.innerHTML = "";
     payload.chat.forEach(addChatLine);
     renderOnline();
@@ -355,7 +368,11 @@ function connectSocket() {
         if (merged.sittingDeskId) ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
         else if (merged.homeDeskId) ui.deskHint.textContent = `Jouw bureau: ${merged.homeDeskId}`;
         ($("status-select") as HTMLSelectElement).value = merged.status;
-        syncPauseClock(merged);
+        if (document.activeElement !== ui.statusText) {
+          ui.statusText.value = merged.statusText || "";
+        }
+        syncHudClock(merged);
+        syncStudyMute(merged);
     }
     renderOnline();
   });
@@ -394,7 +411,11 @@ function connectSocket() {
     notify(n.text);
     if (n.type === "pause-end") {
       ($("status-select") as HTMLSelectElement).value = "studeren";
-      syncPauseClock({ ...state.me!, status: "studeren", pauseUntil: 0 });
+      if (state.me) syncHudClock({ ...state.me, status: "studeren", pauseUntil: 0, blockUntil: 0 });
+    }
+    if (n.type === "block-end" && state.me) {
+      ($("status-select") as HTMLSelectElement).value = "pauze";
+      syncHudClock(state.me);
     }
   });
   socket.on("announce", (a) => showAnnounce(a.text));
@@ -453,15 +474,66 @@ function addChatLine(msg: { from: string; firstName: string; text: string; at: n
   ui.chatMsgs.scrollTop = ui.chatMsgs.scrollHeight;
 }
 
+function fillFilterSelect(select: HTMLSelectElement, values: string[], allLabel: string, current: string) {
+  const keep = current && values.includes(current) ? current : "";
+  select.replaceChildren();
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = allLabel;
+  select.appendChild(all);
+  for (const v of values) {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    select.appendChild(opt);
+  }
+  select.value = keep;
+  return keep;
+}
+
 function renderOnline() {
-  const people = [...state.players.values()].sort((a, b) => a.firstName.localeCompare(b.firstName, "nl"));
+  const everyone = [...state.players.values()];
+  const schools = [...new Set(everyone.map((p) => p.school).filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
+  const programs = [...new Set(everyone.map((p) => p.program).filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
+  const schoolKey = schools.join("\0");
+  const programKey = programs.join("\0");
+  if (schoolKey !== state.filterKeys.schools) {
+    state.filterKeys.schools = schoolKey;
+    state.filters.school = fillFilterSelect(ui.filterSchool, schools, "Alle scholen", state.filters.school);
+  }
+  if (programKey !== state.filterKeys.programs) {
+    state.filterKeys.programs = programKey;
+    state.filters.program = fillFilterSelect(ui.filterProgram, programs, "Alle richtingen", state.filters.program);
+  }
+
+  const statusOrder: Record<Status, number> = { kennismaken: 0, pauze: 1, studeren: 2 };
+  const people = everyone
+    .filter((p) => {
+      if (state.filters.status && p.status !== state.filters.status) return false;
+      if (state.filters.school && p.school !== state.filters.school) return false;
+      if (state.filters.program && p.program !== state.filters.program) return false;
+      if (state.filters.near && !world.isNearby(p.id)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const d = statusOrder[a.status] - statusOrder[b.status];
+      if (d) return d;
+      return a.firstName.localeCompare(b.firstName, "nl");
+    });
+
+  if (!people.length) {
+    ui.online.innerHTML = `<p class="empty">Niemand met dit filter.</p>`;
+    return;
+  }
+
   ui.online.innerHTML = people
     .map((p) => {
       const you = p.id === state.me?.id ? " (jij)" : "";
-      return `<button class="online-user" data-id="${p.id}">
+      const dnd = p.status === "studeren" ? " dnd" : "";
+      return `<button class="online-user${dnd}" data-id="${p.id}">
         <img src="${p.avatarUrl}" alt=""/>
         <span class="u-info"><span class="u-name">${esc(fullName(p))}${you}</span>
-          <span class="u-stat">${esc(statusLabel(p))} · bureau ${p.homeDeskId}</span></span>
+          <span class="u-stat">${esc(statusLabel(p))} · ${esc(p.school)} · bureau ${p.homeDeskId}</span></span>
       </button>`;
     })
     .join("");
@@ -543,6 +615,10 @@ document.querySelectorAll(".ptab").forEach((btn) => {
 
 $("chat-form").addEventListener("submit", (e) => {
   e.preventDefault();
+  if (state.me?.status === "studeren") {
+    notify("Je zit in studeermodus — niet storen. Kies Pauze of Kennismaken om te chatten.");
+    return;
+  }
   const text = ui.chatIn.value.trim();
   if (!text) return;
   state.socket?.emit("chat", text);
@@ -551,6 +627,10 @@ $("chat-form").addEventListener("submit", (e) => {
 });
 
 $("chat-shout").addEventListener("click", () => {
+  if (state.me?.status === "studeren") {
+    notify("Je zit in studeermodus — niet storen. Geen 📣 tot je pauze neemt.");
+    return;
+  }
   const text = ui.chatIn.value.trim();
   if (!text) {
     notify("Typ eerst een bericht, daarna 📣 voor de hele tent.");
@@ -562,6 +642,7 @@ $("chat-shout").addEventListener("click", () => {
 });
 
 ui.chatIn.addEventListener("input", () => {
+  if (state.me?.status === "studeren") return;
   const now = Date.now();
   if (now - state.lastTyping < 120) return;
   state.lastTyping = now;
@@ -590,13 +671,61 @@ $("dm-back").addEventListener("click", () => {
   ui.dmEmpty.hidden = false;
 });
 
+function emitStatus() {
+  const status = ($("status-select") as HTMLSelectElement).value as Status;
+  state.socket?.emit("status", { status, statusText: ui.statusText.value });
+}
+
 $("status-select").addEventListener("change", () => {
   const status = ($("status-select") as HTMLSelectElement).value as Status;
-  state.socket?.emit("status", { status });
+  emitStatus();
   if (status === "studeren" && state.me?.homeDeskId) {
     ui.deskHint.textContent = `Je zit aan bureau ${state.me.homeDeskId} (studeermodus)`;
   }
 });
+
+ui.statusText.addEventListener("change", emitStatus);
+ui.statusText.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    ui.statusText.blur();
+  }
+});
+
+function startBlock(minutes: 25 | 50) {
+  state.socket?.emit("block", { minutes });
+  ($("status-select") as HTMLSelectElement).value = "studeren";
+  if (state.me?.homeDeskId) {
+    ui.deskHint.textContent = `Je zit aan bureau ${state.me.homeDeskId} (studeermodus)`;
+  }
+}
+
+$("block-25").addEventListener("click", () => startBlock(25));
+$("block-50").addEventListener("click", () => startBlock(50));
+
+document.querySelectorAll("#filter-status .fchip").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#filter-status .fchip").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.filters.status = ((btn as HTMLElement).dataset.status || "") as "" | Status;
+    renderOnline();
+  });
+});
+ui.filterSchool.addEventListener("change", () => {
+  state.filters.school = ui.filterSchool.value;
+  renderOnline();
+});
+ui.filterProgram.addEventListener("change", () => {
+  state.filters.program = ui.filterProgram.value;
+  renderOnline();
+});
+ui.filterNear.addEventListener("change", () => {
+  state.filters.near = ui.filterNear.checked;
+  renderOnline();
+});
+setInterval(() => {
+  if (state.filters.near) renderOnline();
+}, 1000);
 
 $("btn-speeddate").addEventListener("click", () => $("modal-date").classList.add("open"));
 $("date-close").addEventListener("click", () => $("modal-date").classList.remove("open"));
@@ -620,27 +749,56 @@ function tickDate(endsAt: number) {
   state.dateTimer = setInterval(tick, 250);
 }
 
-let pauseClock: ReturnType<typeof setInterval> | 0 = 0;
-function syncPauseClock(user: PublicPlayer) {
-  clearInterval(pauseClock);
+let hudClock: ReturnType<typeof setInterval> | 0 = 0;
+function formatClock(until: number) {
+  const left = Math.max(0, until - Date.now());
+  const m = Math.floor(left / 60000);
+  const s = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
+  return { label: `${m}:${s}`, left };
+}
+
+function syncHudClock(user: PublicPlayer) {
+  clearInterval(hudClock);
   const el = $("pause-timer");
-  if (user.status !== "pauze" || !user.pauseUntil) {
-    el.hidden = true;
-    return;
-  }
-  el.hidden = false;
   const tick = () => {
-    const left = Math.max(0, user.pauseUntil - Date.now());
-    const m = Math.floor(left / 60000);
-    const s = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
-    el.textContent = `Pauze ${m}:${s}`;
-    if (left <= 0) {
-      clearInterval(pauseClock);
-      el.hidden = true;
+    if (user.status === "pauze" && user.pauseUntil) {
+      const { label, left } = formatClock(user.pauseUntil);
+      el.hidden = false;
+      el.textContent = `Pauze ${label}`;
+      el.classList.toggle("block-clock", false);
+      if (left <= 0) {
+        clearInterval(hudClock);
+        el.hidden = true;
+      }
+      return;
     }
+    if (user.status === "studeren" && user.blockUntil) {
+      const { label, left } = formatClock(user.blockUntil);
+      el.hidden = false;
+      el.textContent = `Blok ${label}`;
+      el.classList.toggle("block-clock", true);
+      if (left <= 0) {
+        clearInterval(hudClock);
+        el.hidden = true;
+      }
+      return;
+    }
+    el.hidden = true;
+    el.classList.remove("block-clock");
   };
   tick();
-  pauseClock = setInterval(tick, 250);
+  hudClock = setInterval(tick, 250);
+}
+
+function syncStudyMute(user: PublicPlayer) {
+  const mute = user.status === "studeren";
+  ui.chatIn.disabled = mute;
+  ui.chatShout.disabled = mute;
+  ui.chatIn.placeholder = mute
+    ? "Je zit in studeermodus — niet storen"
+    : "Zeg iets tegen wie in de buurt is…";
+  $("block-25").classList.toggle("on", mute && user.blockMinutes === 25);
+  $("block-50").classList.toggle("on", mute && user.blockMinutes === 50);
 }
 
 function showAnnounce(text: string) {

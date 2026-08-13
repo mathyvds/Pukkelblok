@@ -1,4 +1,13 @@
-import { DESK_COUNT, MAX_AVATAR_BYTES, MAX_CHAT, MAX_ONLINE, statuses, type Status } from "./protocol";
+import {
+  BLOCK_MINUTES,
+  DESK_COUNT,
+  MAX_AVATAR_BYTES,
+  MAX_CHAT,
+  MAX_ONLINE,
+  statuses,
+  type BlockMinutes,
+  type Status,
+} from "./protocol";
 
 export { MAX_ONLINE, MAX_AVATAR_BYTES, MAX_CHAT };
 
@@ -48,6 +57,18 @@ export function validateProfile(input: { age: unknown; school: unknown; program:
 
 export function validateStatus(status: unknown): Status {
   return statuses.includes(status as Status) ? (status as Status) : "kennismaken";
+}
+
+export function validateStatusText(value: unknown) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+}
+
+export function validateBlockMinutes(value: unknown): BlockMinutes | null {
+  const n = Number(value);
+  return BLOCK_MINUTES.includes(n as BlockMinutes) ? (n as BlockMinutes) : null;
 }
 
 export function validateChat(text: unknown): ChatOk | Fail {

@@ -196,6 +196,16 @@ app.post("/api/host/announce", requireHost, (req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/host/quiet-round", requireHost, (req, res) => {
+  const result = store.startQuietRound(req.body?.minutes);
+  if ("error" in result) return res.status(400).json({ error: result.error });
+  for (const pub of result.players) {
+    io.to("tent").emit("player:update", pub);
+  }
+  io.to("tent").emit("announce", { text: result.announce, at: Date.now() });
+  res.json({ ok: true, state: store.hostSnapshot() });
+});
+
 app.get("/host", (_req, res) => {
   res.sendFile(path.join(ROOT, "public/host.html"));
 });
@@ -274,6 +284,15 @@ io.on("connection", (socket) => {
   socket.on("status", (data) => {
     const pub = store.setStatus(userId, data?.status, data?.statusText);
     if (pub) io.to("tent").emit("player:update", pub);
+  });
+
+  socket.on("block", (data) => {
+    const result = store.startBlock(userId, data?.minutes);
+    if ("error" in result) {
+      socket.emit("notice", { type: "error", text: result.error });
+      return;
+    }
+    io.to("tent").emit("player:update", result.user);
   });
 
   socket.on("typing", (data) => {
@@ -368,10 +387,20 @@ setInterval(() => {
 setInterval(() => {
   const expired = store.expireBubbles();
   for (const id of expired) io.to("tent").emit("player:bubble-end", { id });
-  for (const pub of store.tickPauses()) {
+  const timers = store.tickTimers();
+  for (const pub of timers.pauseEnded) {
     io.to("tent").emit("player:update", pub);
     emitToSocket(pub.id, (sid) =>
       io.to(sid).emit("notice", { type: "pause-end", text: "Pauze voorbij — terug aan de blok." })
+    );
+  }
+  for (const ended of timers.blockEnded) {
+    io.to("tent").emit("player:update", ended.user);
+    emitToSocket(ended.user.id, (sid) =>
+      io.to(sid).emit("notice", {
+        type: "block-end",
+        text: `Blok voorbij — ${ended.pauseMinutes} min pauze.`,
+      })
     );
   }
   const { started, ended, waiting } = store.matchDates();

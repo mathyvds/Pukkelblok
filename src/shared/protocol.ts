@@ -13,6 +13,10 @@ export type School = (typeof SCHOOLS)[number];
 export const DESK_COUNT = 100;
 export const PROXIMITY = 420;
 export const PAUSE_MS = 10 * 60 * 1000;
+export const BLOCK_MINUTES = [25, 50] as const;
+export type BlockMinutes = (typeof BLOCK_MINUTES)[number];
+export const BLOCK_MS = { 25: 25 * 60 * 1000, 50: 50 * 60 * 1000 } as const;
+export const BLOCK_PAUSE_MS = { 25: 5 * 60 * 1000, 50: 10 * 60 * 1000 } as const;
 export const CHAT_COOLDOWN_MS = 700;
 export const SHOUT_COOLDOWN_MS = 60_000;
 export const DATE_WAIT_FALLBACK_MS = 45_000;
@@ -35,6 +39,8 @@ export type PublicPlayer = {
   status: Status;
   statusText: string;
   pauseUntil: number;
+  blockUntil: number;
+  blockMinutes: 0 | BlockMinutes;
   typing: boolean;
   draft: string;
   bubble: string;
@@ -125,6 +131,7 @@ export type ClientToServerEvents = {
   sit: (deskId: number) => void;
   stand: () => void;
   status: (data: { status: Status; statusText?: string }) => void;
+  block: (data: { minutes: BlockMinutes }) => void;
   typing: (data: { typing: boolean; draft: string }) => void;
   chat: (text: string) => void;
   shout: (text: string) => void;

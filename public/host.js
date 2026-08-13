@@ -111,5 +111,21 @@
     document.getElementById("announce-in").value = "";
   });
 
+  async function quietRound(minutes) {
+    const label = minutes === 50 ? "iedereen 50 min stil" : "iedereen 25 min stil";
+    if (!confirm(`Start een gezamenlijke ronde: ${label}?`)) return;
+    try {
+      const next = await api("/api/host/quiet-round", {
+        method: "POST",
+        body: JSON.stringify({ minutes }),
+      });
+      render(next.state);
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+  document.getElementById("quiet-25").addEventListener("click", () => quietRound(25));
+  document.getElementById("quiet-50").addEventListener("click", () => quietRound(50));
+
   boot();
 })();

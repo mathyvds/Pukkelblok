@@ -1,6 +1,15 @@
 import crypto from "node:crypto";
-import type { ChatMessage, DirectMessage, PlayerMove, PublicPlayer, Status } from "../shared/protocol";
+import type {
+  BlockMinutes,
+  ChatMessage,
+  DirectMessage,
+  PlayerMove,
+  PublicPlayer,
+  Status,
+} from "../shared/protocol";
 import {
+  BLOCK_MS,
+  BLOCK_PAUSE_MS,
   CHAT_COOLDOWN_MS,
   DATE_WAIT_FALLBACK_MS,
   MAX_ONLINE,
@@ -8,7 +17,14 @@ import {
   PROXIMITY,
   SHOUT_COOLDOWN_MS,
 } from "../shared/protocol";
-import { shirtColor, validateStatus, type AvatarPhoto, type AvatarPreset } from "../shared/validate";
+import {
+  shirtColor,
+  validateBlockMinutes,
+  validateStatus,
+  validateStatusText,
+  type AvatarPhoto,
+  type AvatarPreset,
+} from "../shared/validate";
 import { clampMove, deskById, ICEBREAKERS, MAX_SPEED, type World } from "../shared/world";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -35,6 +51,8 @@ export type User = {
   status: Status;
   statusText: string;
   pauseUntil: number;
+  blockUntil: number;
+  blockMinutes: 0 | BlockMinutes;
   typing: boolean;
   draft: string;
   bubble: string;
@@ -86,6 +104,8 @@ export function createStore(world: World) {
       status: user.status,
       statusText: user.statusText,
       pauseUntil: user.pauseUntil || 0,
+      blockUntil: user.blockUntil || 0,
+      blockMinutes: user.blockMinutes || 0,
       typing: user.typing,
       draft: user.draft,
       bubble: user.bubble,
@@ -236,6 +256,8 @@ export function createStore(world: World) {
         status: "studeren",
         statusText: "",
         pauseUntil: 0,
+        blockUntil: 0,
+        blockMinutes: 0,
         typing: false,
         draft: "",
         bubble: "",
@@ -266,6 +288,9 @@ export function createStore(world: World) {
       user.y = desk.seatY;
       user.moving = false;
       user.status = "studeren";
+      user.pauseUntil = 0;
+      user.blockUntil = 0;
+      user.blockMinutes = 0;
     }
 
     if (input.avatar.kind === "preset") {
@@ -363,10 +388,7 @@ export function createStore(world: World) {
     user.y = desk.seatY;
     user.moving = false;
     if (desk.id !== user.homeDeskId && user.status === "studeren") {
-      user.status = "pauze";
-      if (!user.pauseUntil || user.pauseUntil < Date.now()) {
-        user.pauseUntil = Date.now() + PAUSE_MS;
-      }
+      enterPause(user, PAUSE_MS);
     }
     return { user: publicUser(user) };
   }
@@ -376,52 +398,130 @@ export function createStore(world: World) {
     if (!user) return null;
     user.sittingDeskId = null;
     if (user.status === "studeren") {
-      user.status = "pauze";
-      if (!user.pauseUntil || user.pauseUntil < Date.now()) {
-        user.pauseUntil = Date.now() + PAUSE_MS;
-      }
+      enterPause(user, PAUSE_MS);
     }
     return publicUser(user);
   }
 
-  function setStatus(userId: string, status: unknown, statusText: unknown) {
+  function clearBlock(user: User) {
+    user.blockUntil = 0;
+    user.blockMinutes = 0;
+  }
+
+  function enterPause(user: User, pauseMs: number) {
+    user.status = "pauze";
+    clearBlock(user);
+    if (!user.pauseUntil || user.pauseUntil < Date.now()) {
+      user.pauseUntil = Date.now() + pauseMs;
+    }
+  }
+
+  function seatAtHome(user: User) {
+    const desk = deskById(world, user.homeDeskId);
+    if (!desk) return;
+    user.sittingDeskId = desk.id;
+    user.x = desk.seatX;
+    user.y = desk.seatY;
+    user.moving = false;
+  }
+
+  function hushStudy(user: User) {
+    user.typing = false;
+    user.draft = "";
+    user.bubble = "";
+    user.bubbleUntil = 0;
+  }
+
+  function setStatus(userId: string, status: unknown, statusText?: unknown) {
     const user = get(userId);
     if (!user) return null;
-    user.status = validateStatus(status);
-    user.statusText = String(statusText || "").trim().slice(0, 60);
+    const next = validateStatus(status);
+    if (statusText !== undefined) {
+      user.statusText = validateStatusText(statusText);
+    }
+    if (next === user.status) return publicUser(user);
+    user.status = next;
     if (user.status === "studeren") {
       user.pauseUntil = 0;
-      const desk = deskById(world, user.homeDeskId);
-      if (desk) {
-        user.sittingDeskId = desk.id;
-        user.x = desk.seatX;
-        user.y = desk.seatY;
-        user.moving = false;
-      }
+      clearBlock(user);
+      hushStudy(user);
+      seatAtHome(user);
     } else if (user.status === "pauze") {
+      clearBlock(user);
       if (!user.pauseUntil || user.pauseUntil < Date.now()) {
         user.pauseUntil = Date.now() + PAUSE_MS;
       }
     } else {
       user.pauseUntil = 0;
+      clearBlock(user);
     }
     return publicUser(user);
   }
 
-  function tickPauses(now = Date.now()) {
-    const ended: PublicPlayer[] = [];
+  function startBlock(userId: string, minutes: unknown): { user: PublicPlayer } | { error: string } {
+    const mins = validateBlockMinutes(minutes);
+    if (!mins) return { error: "Kies een blok van 25 of 50 minuten." };
+    const user = get(userId);
+    if (!user) return { error: "Niet ingelogd." };
+    if (user.status !== "studeren") {
+      setStatus(userId, "studeren");
+    } else {
+      user.pauseUntil = 0;
+      hushStudy(user);
+      seatAtHome(user);
+    }
+    leaveQueue(userId);
+    user.blockMinutes = mins;
+    user.blockUntil = Date.now() + BLOCK_MS[mins];
+    return { user: publicUser(user) };
+  }
+
+  function startQuietRound(minutes: unknown): { players: PublicPlayer[]; announce: string; minutes: BlockMinutes } | { error: string } {
+    const mins = validateBlockMinutes(minutes);
+    if (!mins) return { error: "Kies een ronde van 25 of 50 minuten." };
+    const players: PublicPlayer[] = [];
     for (const user of users.values()) {
+      if (!user.online) continue;
+      const started = startBlock(user.id, mins);
+      if ("user" in started) players.push(started.user);
+    }
+    const announce =
+      mins === 50
+        ? "Iedereen 50 min stil — niet storen tot de pauze."
+        : "Iedereen 25 min stil — niet storen tot de pauze.";
+    return { players, announce, minutes: mins };
+  }
+
+  function tickTimers(now = Date.now()) {
+    const pauseEnded: PublicPlayer[] = [];
+    const blockEnded: { user: PublicPlayer; pauseMinutes: 5 | 10 }[] = [];
+    for (const user of users.values()) {
+      if (user.status === "studeren" && user.blockUntil && user.blockUntil <= now) {
+        const mins: BlockMinutes = user.blockMinutes === 25 ? 25 : 50;
+        const pauseMs = BLOCK_PAUSE_MS[mins];
+        user.blockUntil = 0;
+        user.blockMinutes = 0;
+        user.status = "pauze";
+        user.pauseUntil = now + pauseMs;
+        blockEnded.push({ user: publicUser(user), pauseMinutes: mins === 25 ? 5 : 10 });
+        continue;
+      }
       if (user.status === "pauze" && user.pauseUntil && user.pauseUntil <= now) {
-        const pub = setStatus(user.id, "studeren", "");
-        if (pub) ended.push(pub);
+        const pub = setStatus(user.id, "studeren");
+        if (pub) pauseEnded.push(pub);
       }
     }
-    return ended;
+    return { pauseEnded, blockEnded };
   }
 
   function setTyping(userId: string, typing: boolean, draft: string) {
     const user = get(userId);
     if (!user) return null;
+    if (user.status === "studeren") {
+      user.typing = false;
+      user.draft = "";
+      return { id: user.id, typing: false, draft: "", x: user.x, y: user.y };
+    }
     user.typing = Boolean(typing);
     user.draft = user.typing ? String(draft || "").slice(0, 80) : "";
     return { id: user.id, typing: user.typing, draft: user.draft, x: user.x, y: user.y };
@@ -444,6 +544,9 @@ export function createStore(world: World) {
   }
 
   function addChat(user: User, text: string, scope: "near" | "tent" = "near"): { msg: ChatMessage } | { error: string } {
+    if (user.status === "studeren") {
+      return { error: "Je zit in studeermodus — niet storen. Kies Pauze of Kennismaken om te chatten." };
+    }
     const limited = rateLimitChat(user, scope);
     if ("error" in limited) return limited;
     const msg: ChatMessage = {
@@ -652,6 +755,8 @@ export function createStore(world: World) {
     sit,
     stand,
     setStatus,
+    startBlock,
+    startQuietRound,
     setTyping,
     addChat,
     addDm,
@@ -669,7 +774,7 @@ export function createStore(world: World) {
     chatHistory,
     chatHistoryFor,
     nearbyIds,
-    tickPauses,
+    tickTimers,
     hostSnapshot,
     kick,
     prune,

@@ -126,6 +126,15 @@ export function me() {
   return (state.meId && state.players.get(state.meId)) || null;
 }
 
+export function isNearby(id: string, range?: number) {
+  const self = me();
+  const p = state.players.get(id);
+  if (!self || !p) return false;
+  if (p.id === self.id) return true;
+  const dist = Math.hypot((p.ix ?? p.x) - self.x, (p.iy ?? p.y) - self.y);
+  return dist <= (range || state.world?.proximity || 420);
+}
+
 export function setTouch(dir: TouchDir, down: boolean) {
   state.touch[dir] = down;
 }
@@ -453,7 +462,7 @@ function ensureNode(p: WorldPerson) {
       <img class="face" alt=""/>
       <span class="st-dot"></span>
     </div>
-    <div class="nametag"></div>`;
+    <div class="nametag"><span class="nm"></span><span class="nm-extra"></span></div>`;
   el.addEventListener("click", (ev) => {
     ev.stopPropagation();
     if (p.id !== state.meId) state.handlers.onClickPerson?.(p.id);
@@ -473,13 +482,24 @@ function syncDom() {
     el.classList.toggle("walking", Boolean(p.moving) && !p.sittingDeskId);
     el.classList.toggle("sitting", Boolean(p.sittingDeskId));
     el.classList.toggle("face-left", p.facing === -1);
+    el.classList.toggle("dnd", p.status === "studeren");
     (el.querySelector(".torso") as HTMLElement).style.background = p.color || "#FFE600";
     const img = el.querySelector(".face") as HTMLImageElement;
     if (img.getAttribute("src") !== p.avatarUrl) img.src = p.avatarUrl;
-    el.querySelector(".nametag")!.textContent = p.firstName;
+    el.querySelector(".nm")!.textContent = p.firstName;
+    const extra =
+      p.status === "studeren"
+        ? p.statusText
+          ? `${p.statusText} · Niet storen`
+          : "Niet storen"
+        : p.statusText || "";
+    el.querySelector(".nm-extra")!.textContent = extra;
+    el.classList.toggle("has-extra", Boolean(extra));
     (el.querySelector(".st-dot") as HTMLElement).style.background = STATUS_COLOR[p.status] || "#22c55e";
     const bubble = el.querySelector(".bubble")!;
-    if (p.typing && p.draft) {
+    if (p.status === "studeren") {
+      bubble.className = "bubble";
+    } else if (p.typing && p.draft) {
       bubble.textContent = p.draft;
       bubble.className = "bubble on typing";
     } else if (p.bubble) {
