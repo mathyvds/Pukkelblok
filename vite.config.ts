@@ -16,5 +16,8 @@ export default defineConfig({
   },
   server: {
     middlewareMode: true,
+    // Cursor port-forward and tent-wifi IPs send a Host header other than
+    // localhost; Vite 7 otherwise blocks the page (403 / "404" in the preview).
+    allowedHosts: true,
   },
 });
