@@ -128,6 +128,7 @@
       </select>
       <input id="status-text" maxlength="60" autocomplete="off" placeholder="bv. statistiek, arrest, pauze tot 11u" title="Korte status, zichtbaar voor anderen"/>
       <button class="btn-hud" id="btn-speeddate">Speeddate</button>
+      <button class="btn-hud" id="btn-panel" aria-pressed="true" title="Aanwezig-lijst tonen of verbergen">Lijst</button>
       <button class="btn-hud" id="btn-sound" aria-pressed="false" title="Tentgeluid: zeil, koffie, verre crew. Standaard uit.">Geluid uit</button>
       <button class="btn-hud" id="btn-logout">Uitloggen</button>
     </header>
@@ -137,6 +138,7 @@
         <canvas id="world"></canvas>
         <div id="announce-banner" hidden></div>
         <div id="onboard-banner" hidden></div>
+        <div id="reconnect-banner" hidden>Verbinding even weg. We proberen opnieuw…</div>
         <div class="wave-bar" id="wave-bar" title="Zwaai — zonder tekst">
           <button type="button" data-wave="👋">👋</button>
           <button type="button" data-wave="☕">☕</button>
@@ -173,7 +175,7 @@
       <aside id="side-panel">
         <div class="panel-tabs">
           <button class="ptab on" data-tab="online">Aanwezig</button>
-          <button class="ptab" data-tab="chat">Chat</button>
+          <button class="ptab" data-tab="chat">Chat <span class="badge" id="chat-badge" hidden>0</span></button>
           <button class="ptab" data-tab="dm">Berichten <span class="badge" id="dm-badge" hidden>0</span></button>
         </div>
         <div class="tab-pane on" id="tab-online">
@@ -191,6 +193,7 @@
               <option value="">Alle richtingen</option>
             </select>
             <label class="filter-near"><input type="checkbox" id="filter-near"/> In de buurt</label>
+            <button type="button" class="fchip" id="filter-my-school">Mijn school</button>
           </div>
           <div class="online-list" id="online-list"></div>
         </div>
@@ -204,6 +207,7 @@
         </div>
         <div class="tab-pane" id="tab-dm">
           <div id="dm-empty" class="empty">Klik op iemand om een privébericht te sturen.</div>
+          <div id="dm-inbox" hidden></div>
           <div id="dm-thread" hidden>
             <div class="dm-head">
               <button type="button" id="dm-back">←</button>
@@ -224,6 +228,7 @@
     <footer id="bot-hud">
       <span>Studeren = niet storen. WASD = pauze. E = aansluiten of tafel verlaten. Tafels zijn bubbels: alleen zij horen je.</span>
       <span id="desk-hint"></span>
+      <button type="button" class="btn-tiny" id="btn-home-desk">Naar mijn bureau</button>
     </footer>
   </div>
 

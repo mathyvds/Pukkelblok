@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   validateNames,
   parseAvatar,
@@ -742,4 +745,113 @@ test("dagkaart, schoolhoekjes en onboarding", () => {
   store.connect(a.user.id, "s1");
   assert.ok(store.zoneOccupancy().some((z) => z.id === "study"));
   assert.match(onboardText(42), /bureau 42/);
+});
+
+test("shout gaat niet naar geblokkeerde studenten", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(
+    guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } })
+  );
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.setStatus(a.user.id, "kennismaken");
+  store.setStatus(b.user.id, "kennismaken");
+  store.block(a.user.id, b.user.id);
+  const shout = store.addChat(a.user, "hallo tent", "shout");
+  assert.ok("msg" in shout);
+  assert.equal(shout.ids.includes(b.user.id), false);
+  assert.equal(shout.ids.includes(a.user.id), true);
+});
+
+test("unkick laat dezelfde naam weer binnen", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.kick(a.user.id);
+  const blocked = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 3 }));
+  assert.ok("error" in blocked);
+  const snap = store.hostSnapshot();
+  assert.equal(snap.kicked.length, 1);
+  const ok = store.unkick(snap.kicked[0].identity);
+  assert.ok("ok" in ok);
+  const again = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 3 }));
+  assert.ok("user" in again);
+});
+
+test("host geeft bureau vrij van een student die weg is", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 7 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.connect(a.user.id, "s1");
+  const online = store.releaseDesk(7);
+  assert.ok("error" in online);
+  store.dropSocket(a.user.id, "s1");
+  store.finishDisconnect(a.user.id);
+  const freed = store.releaseDesk(7);
+  assert.ok("ok" in freed);
+  const b = store.join(
+    guest({ firstName: "Britt", lastName: "Beelen", deskId: 7, avatar: { kind: "preset" as const, preset: 2 } })
+  );
+  assert.ok("user" in b);
+});
+
+test("hostronde laat speeddates zitten", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(
+    guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } })
+  );
+  const c = store.join(
+    guest({ firstName: "Chris", lastName: "Claes", deskId: 3, avatar: { kind: "preset" as const, preset: 3 } })
+  );
+  if (!("user" in a) || !("user" in b) || !("user" in c)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.connect(c.user.id, "s3");
+  store.setStatus(a.user.id, "kennismaken");
+  store.setStatus(b.user.id, "kennismaken");
+  store.setStatus(c.user.id, "kennismaken");
+  store.joinQueue(a.user.id);
+  store.joinQueue(b.user.id);
+  const { started } = store.matchDates();
+  assert.equal(started.length, 1);
+  const round = store.startQuietRound(25);
+  assert.ok("players" in round);
+  assert.equal(store.get(a.user.id)?.status, "kennismaken");
+  assert.equal(store.get(b.user.id)?.status, "kennismaken");
+  assert.equal(store.get(c.user.id)?.status, "studeren");
+});
+
+test("ijsbreker naar iemand anders noemt die student", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(
+    guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } })
+  );
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.setStatus(a.user.id, "kennismaken");
+  store.setStatus(b.user.id, "kennismaken");
+  const ice = store.sayIce(a.user.id, "profile", b.user.id);
+  assert.ok("text" in ice);
+  assert.equal(ice.otherId, b.user.id);
+});
+
+test("kick en meldingen blijven staan na herstart van de store", () => {
+  const file = path.join(os.tmpdir(), `pukkelblok-host-${Date.now()}.json`);
+  const first = createStore(createWorld(), { persistPath: file });
+  const a = first.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = first.join(
+    guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } })
+  );
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  first.report(a.user.id, b.user.id, "Lastigvallen");
+  first.kick(b.user.id);
+  const second = createStore(createWorld(), { persistPath: file });
+  assert.equal(second.hostSnapshot().reports.length, 1);
+  assert.equal(second.hostSnapshot().kicked.length, 1);
+  const blocked = second.join(guest({ firstName: "Britt", lastName: "Beelen", deskId: 4, avatar: { kind: "preset" as const, preset: 2 } }));
+  assert.ok("error" in blocked);
+  fs.unlinkSync(file);
 });

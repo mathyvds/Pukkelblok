@@ -5,84 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Pukkelblok host</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet"/>
-  <style>
-    :root {
-      --display: "Bebas Neue", Impact, sans-serif;
-      --card: #1a1520;
-      --line: #3a3344;
-      --yellow: #ffe600;
-      --pink: #e91e8c;
-    }
-    *, *::before, *::after { box-sizing: border-box; }
-    body {
-      margin: 0;
-      overflow: auto;
-      background: #110e14;
-      color: #f5f5f5;
-      font-family: Outfit, system-ui, sans-serif;
-    }
-    button { cursor: pointer; border: none; font-family: inherit; }
-    input, select { font-family: inherit; }
-    .btn-primary {
-      background: var(--yellow);
-      color: #111;
-      font-weight: 800;
-      border-radius: 4px;
-      padding: 0.9rem 1.5rem;
-      font-size: 1rem;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-    }
-    .btn-primary.wide { width: 100%; }
-    .btn-hud {
-      background: #1a1a1a;
-      color: #fff;
-      border: 1px solid #333;
-      border-radius: 4px;
-      padding: 0.45rem 0.8rem;
-      font-size: .8rem;
-      font-weight: 700;
-    }
-    .join-note { color: #c8c8c8; font-size: .85rem; margin: .3rem 0 1rem; }
-    .hud-sep { flex: 1; }
-    label { display: block; font-size: .78rem; font-weight: 700; color: #c8c8c8; margin: .6rem 0 .3rem; }
-    #pin {
-      width: 100%;
-      background: #0c0a10;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      color: #fff;
-      padding: .75rem .9rem;
-      font-size: 1rem;
-    }
-    .host{max-width:1100px;margin:0 auto;padding:1.4rem 1rem 3rem}
-    .host h1, .pin-card h1{font-family:var(--display);font-size:3rem;letter-spacing:.04em;margin:0}
-    .host h1 span{color:var(--yellow)}
-    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:1rem 0}
-    .day-card,.moments{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 1rem}
-    .day-card button.on,.moments button.on{border-color:var(--yellow);color:var(--yellow)}
-    .board-preview{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.8rem 1rem;margin:0 0 1rem}
-    .board-preview b{color:var(--yellow)}
-    .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.8rem;text-align:center}
-    .stat b{display:block;font-size:1.4rem;color:var(--yellow)}
-    .desk-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;margin:1rem 0}
-    .desk{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.4rem .2rem;font-size:.68rem;text-align:center}
-    .desk.taken{border-color:var(--pink);background:rgba(233,30,140,.12)}
-    table{width:100%;border-collapse:collapse;font-size:.85rem}
-    th,td{text-align:left;padding:.45rem .4rem;border-bottom:1px solid var(--line)}
-    .kick{background:rgba(233,30,140,.2);color:#fff;border-radius:8px;padding:.25rem .55rem;font-size:.75rem;font-weight:700}
-    .announce{display:flex;gap:8px;margin:1rem 0}
-    .announce input{flex:1;background:#0c0a10;border:1px solid var(--line);border-radius:10px;color:#fff;padding:.7rem .8rem}
-    .quiet-round{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 1rem}
-    .pin-card{width:min(380px,92vw);margin:18vh auto;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:1.4rem}
-    .warn{color:#ffb4b4;font-size:.85rem;min-height:1.2rem}
-    @media (max-width:700px){
-      .stats{grid-template-columns:repeat(2,1fr)}
-      .desk-grid{grid-template-columns:repeat(5,1fr)}
-    }
-  </style>
+  <link rel="stylesheet" href="/host.css"/>
 </head>
 <body>
   <div id="login" class="pin-card">
@@ -110,6 +33,7 @@
       <div class="stat"><b id="s-study">0</b>blokzone</div>
       <div class="stat"><b id="s-lounge">0</b>lounge</div>
       <div class="stat"><b id="s-bar">0</b>koffiehoek</div>
+      <div class="stat" id="stat-reports"><b id="s-reports">0</b>meldingen</div>
     </div>
     <div class="board-preview">
       <b id="board-title">Dagkaart</b>
@@ -148,10 +72,17 @@
     </div>
     <h2>Bureaus 1–100</h2>
     <div class="desk-grid" id="desks"></div>
-    <h2>Meldingen</h2>
+    <div class="reports-wrap" id="reports-wrap">
+      <h2>Meldingen</h2>
+      <table>
+        <thead><tr><th>Van</th><th>Over</th><th>Reden</th><th></th></tr></thead>
+        <tbody id="reports"></tbody>
+      </table>
+    </div>
+    <h2>Uit de tent gezet</h2>
     <table>
-      <thead><tr><th>Van</th><th>Over</th><th>Reden</th><th></th></tr></thead>
-      <tbody id="reports"></tbody>
+      <thead><tr><th>Naam</th><th></th></tr></thead>
+      <tbody id="kicked"></tbody>
     </table>
     <h2>Aanwezig</h2>
     <table>

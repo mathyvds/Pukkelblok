@@ -2,6 +2,8 @@
   const login = document.getElementById("login");
   const dash = document.getElementById("dash");
   const err = document.getElementById("login-error");
+  let lastReportCount = null;
+  let pollTimer = 0;
 
   async function api(url, opts) {
     const res = await fetch(url, {
@@ -14,6 +16,24 @@
     return data;
   }
 
+  function beep() {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = 880;
+      gain.gain.value = 0.05;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.18);
+      osc.onended = () => ctx.close();
+    } catch {
+      /* geen geluid op deze laptop */
+    }
+  }
+
   function render(state) {
     document.getElementById("s-online").textContent = `${state.online}/${state.max}`;
     document.getElementById("s-desks").textContent = state.desks.filter((d) => d.taken).length + "/" + state.desks.length;
@@ -24,8 +44,23 @@
     document.getElementById("s-study").textContent = String(zoneCount("study"));
     document.getElementById("s-lounge").textContent = String(zoneCount("lounge"));
     document.getElementById("s-bar").textContent = String(zoneCount("coffee"));
+    document.getElementById("s-bar").textContent = String(zoneCount("coffee"));
     const botsEl = document.getElementById("s-bots");
     if (botsEl) botsEl.innerHTML = `<b>${state.bots || 0}</b> bots`;
+    const reportCount = (state.reports || []).length;
+    document.getElementById("s-reports").textContent = String(reportCount);
+    const reportsWrap = document.getElementById("reports-wrap");
+    const reportsStat = document.getElementById("stat-reports");
+    if (lastReportCount != null && reportCount > lastReportCount) {
+      reportsWrap.classList.add("flash");
+      reportsStat.classList.add("flash");
+      beep();
+      setTimeout(() => {
+        reportsWrap.classList.remove("flash");
+        reportsStat.classList.remove("flash");
+      }, 4000);
+    }
+    lastReportCount = reportCount;
     if (state.board) {
       document.getElementById("board-title").textContent = state.board.moment || state.board.title;
       document.getElementById("board-sub").textContent = state.board.subtitle || "";
@@ -33,20 +68,34 @@
         btn.classList.toggle("on", btn.dataset.slot === state.board.slotId);
       });
     }
-    document.getElementById("reports").innerHTML = (state.reports || [])
-      .map(
-        (r) => `<tr>
+    document.getElementById("reports").innerHTML = (state.reports || []).length
+      ? (state.reports || [])
+          .map(
+            (r) => `<tr>
           <td>${esc(r.fromName)}</td>
           <td>${esc(r.aboutName)}</td>
           <td>${esc(r.reason)}</td>
           <td><button class="kick" data-id="${r.aboutId}">Zet eruit</button></td>
         </tr>`
-      )
-      .join("");
+          )
+          .join("")
+      : `<tr><td colspan="4" class="empty-row">Geen meldingen.</td></tr>`;
+    document.getElementById("kicked").innerHTML = (state.kicked || []).length
+      ? (state.kicked || [])
+          .map(
+            (k) => `<tr>
+          <td>${esc(k.name)}</td>
+          <td><button class="unkick" data-identity="${esc(k.identity)}">Laat weer binnen</button></td>
+        </tr>`
+          )
+          .join("")
+      : `<tr><td colspan="2" class="empty-row">Niemand geblokkeerd.</td></tr>`;
     document.getElementById("desks").innerHTML = state.desks
       .map(
         (d) =>
-          `<div class="desk${d.taken ? " taken" : ""}"><strong>${d.id}</strong><br>${d.taken ? esc(d.by || "bezet") : "vrij"}</div>`
+          `<div class="desk${d.taken ? " taken" : ""}"><strong>${d.id}</strong><br>${d.taken ? esc(d.by || "bezet") : "vrij"}${
+            d.taken ? `<br><button type="button" data-desk="${d.id}">Vrij</button>` : ""
+          }</div>`
       )
       .join("");
     document.getElementById("people").innerHTML = state.players
@@ -74,6 +123,33 @@
         }
       });
     });
+    document.querySelectorAll(".unkick").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          const next = await api("/api/host/unkick", {
+            method: "POST",
+            body: JSON.stringify({ identity: btn.dataset.identity }),
+          });
+          render(next.state);
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+    });
+    document.querySelectorAll("[data-desk]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm(`Bureau ${btn.dataset.desk} vrijgeven? Alleen als de student niet meer in de tent zit.`)) return;
+        try {
+          const next = await api("/api/host/release-desk", {
+            method: "POST",
+            body: JSON.stringify({ deskId: Number(btn.dataset.desk) }),
+          });
+          render(next.state);
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+    });
   }
 
   function esc(text) {
@@ -90,6 +166,11 @@
     render(state);
   }
 
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(() => refresh().catch(() => {}), 4000);
+  }
+
   async function boot() {
     try {
       const status = await api("/api/host/status");
@@ -101,7 +182,7 @@
         login.hidden = true;
         dash.hidden = false;
         await refresh();
-        setInterval(() => refresh().catch(() => {}), 4000);
+        startPolling();
       }
     } catch {
       /* blijf op login */
@@ -118,7 +199,7 @@
       login.hidden = true;
       dash.hidden = false;
       render(data.state);
-      setInterval(() => refresh().catch(() => {}), 4000);
+      startPolling();
     } catch (e) {
       err.textContent = e.message;
     }
@@ -139,7 +220,7 @@
 
   async function quietRound(minutes) {
     const label = minutes === 50 ? "iedereen 50 min stil" : "iedereen 25 min stil";
-    if (!confirm(`Start een gezamenlijke ronde: ${label}?`)) return;
+    if (!confirm(`Start een gezamenlijke ronde: ${label}? Speeddates blijven zitten.`)) return;
     try {
       const next = await api("/api/host/quiet-round", {
         method: "POST",

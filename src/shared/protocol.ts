@@ -301,7 +301,7 @@ export type ServerToClientEvents = {
   "speeddate:continue-ask": (payload: { partner: PublicPlayer; until: number }) => void;
   "speeddate:continue-result": (payload: { keep: boolean; partnerId: string }) => void;
   "player:wave": (payload: { id: string; emoji: WaveEmoji }) => void;
-  "ice:prompt": (payload: { text: string; source: IceSource }) => void;
+  "ice:prompt": (payload: { text: string; source: IceSource; fromId?: string; fromName?: string }) => void;
   blocked: (payload: { id: string; blocked: boolean }) => void;
   board: (payload: InfoBoard) => void;
 };

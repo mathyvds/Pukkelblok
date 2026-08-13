@@ -32,10 +32,10 @@ Productie:
 
 ```bash
 npm run build
-COOKIE_SECRET=kies-iets-geheims HOST_PIN=kies-een-code npm start
+TZ=Europe/Brussels COOKIE_SECRET=kies-iets-geheims HOST_PIN=kies-een-code npm start
 ```
 
-`COOKIE_SECRET` is verplicht in productie (geen dev-default). `HOST_PIN` beschermt `/host`. Cookies zijn `Secure` zodra `NODE_ENV=production`.
+`COOKIE_SECRET` is verplicht in productie (geen dev-default). `HOST_PIN` beschermt `/host`. `TZ` zet de dagkaart op Belgische tijd (standaard `Europe/Brussels`). Cookies zijn `Secure` zodra `NODE_ENV=production`. Healthcheck: `GET /api/health`.
 
 Host-dashboard: http://localhost:3000/host
 
@@ -48,10 +48,4 @@ Host-dashboard: http://localhost:3000/host
 - Tot 100 studenten, WASD / klik / touch
 - **Proximity-chat** (dichtbij) + tafelbubbel + 📣 hele tent; DMs lekken niet als spraakwolk
 - Speeddate, optioneel dezelfde studierichting eerst
-- Host (`/host`): kick, omroep, bezetting 1–100, simulatie-bots
-
-## Aanbevelingen
-
-- Host lokaal op tent-wifi als clients van elkaar geïsoleerd zijn
-- Zet bureau-nummers 1–100 op de echte tafels
-- Nog niet: voice, XP, minigames
+- Host (`/host`): kick, unkick, bureau vrijgeven, omroep, bezetting 1–100, simulatie-bots

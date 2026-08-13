@@ -48,6 +48,7 @@ import {
 } from "../shared/world";
 import type { DeskStyle } from "../shared/protocol";
 import { DESK_STYLES } from "../shared/protocol";
+import { loadHostState, saveHostState, type KickRecord } from "./persist";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const BUBBLE_MS = 7000;
@@ -115,7 +116,7 @@ type DateMatch = {
   reason?: string;
 };
 
-export function createStore(world: World) {
+export function createStore(world: World, opts?: { persistPath?: string }) {
   const users = new Map<string, User>();
   const sessions = new Map<string, string>();
   const avatars = new Map<string, { buffer: Buffer; mime: string }>();
@@ -125,11 +126,25 @@ export function createStore(world: World) {
   const dateQueue: { id: string; queuedAt: number; preferSameStudy: boolean }[] = [];
   const dates = new Map<string, DateMatch>();
   const pendingMoves: PlayerMove[] = [];
-  const kicked = new Set<string>();
-  const kickedIdentities = new Set<string>();
-  const reports: Report[] = [];
+  const persistPath = opts?.persistPath;
+  const loaded = persistPath ? loadHostState(persistPath) : { reports: [] as Report[], kicked: [] as KickRecord[] };
+  const kicked: KickRecord[] = [...loaded.kicked];
+  const reports: Report[] = [...loaded.reports];
   let board: InfoBoard = world.board || defaultBoard();
   let lastDisplaced: PublicPlayer[] = [];
+
+  function persistHost() {
+    if (!persistPath) return;
+    saveHostState(persistPath, { reports: reports.slice(-40), kicked: kicked.slice(-80) });
+  }
+
+  function isKickedSid(sid: string | undefined) {
+    return Boolean(sid && kicked.some((k) => k.sid === sid));
+  }
+
+  function isKickedIdentity(key: string) {
+    return kicked.some((k) => k.identity === key);
+  }
 
   function publicUser(user: User): PublicPlayer {
     return {
@@ -277,6 +292,11 @@ export function createStore(world: World) {
       zones: zoneOccupancy(),
       board,
       reports: reports.slice(-15),
+      kicked: kicked.slice(-20).map((k) => ({
+        identity: k.identity,
+        name: k.name,
+        at: k.at,
+      })),
       players: listOnline().map((p) => ({
         id: p.id,
         firstName: p.firstName,
@@ -299,8 +319,13 @@ export function createStore(world: World) {
     leaveQueue(userId);
     const endedDate = endDate(userId, reason);
     if (reason === "kick") {
-      kicked.add(sid);
-      kickedIdentities.add(identityKey(user.firstName, user.lastName, user.age));
+      kicked.push({
+        identity: identityKey(user.firstName, user.lastName, user.age),
+        sid,
+        name: `${user.firstName} ${user.lastName}`,
+        at: Date.now(),
+      });
+      persistHost();
     }
     users.delete(userId);
     sessions.delete(sid);
@@ -327,8 +352,8 @@ export function createStore(world: World) {
     return `${firstName.normalize("NFC").toLowerCase()}|${lastName.normalize("NFC").toLowerCase()}|${age}`;
   }
 
-  function chatHistoryFor(_userId: string) {
-    return chat.filter((m) => m.scope === "tent").slice(-40);
+  function chatHistoryFor(userId: string) {
+    return chat.filter((m) => m.scope === "tent" && !isBlocked(userId, m.from)).slice(-40);
   }
 
   function join(input: {
@@ -343,13 +368,8 @@ export function createStore(world: World) {
     deskStyle?: DeskStyle;
     isBot?: boolean;
   }): { user: User } | { error: string } {
-    if (!input.isBot) {
-      if (input.sid && kicked.has(input.sid)) {
-        return { error: "Je bent uit de tent gezet. Vraag de host als dat een vergissing was." };
-      }
-      if (kickedIdentities.has(identityKey(input.firstName, input.lastName, input.age))) {
-        return { error: "Je bent uit de tent gezet. Vraag de host als dat een vergissing was." };
-      }
+    if (!input.isBot && (isKickedSid(input.sid) || isKickedIdentity(identityKey(input.firstName, input.lastName, input.age)))) {
+      return { error: "Je bent uit de tent gezet. Vraag de host als dat een vergissing was." };
     }
     let user = input.sid ? getBySid(input.sid) : null;
     if (!user && onlineCount() >= MAX_ONLINE) {
@@ -684,6 +704,7 @@ export function createStore(world: World) {
     const players: PublicPlayer[] = [];
     for (const user of users.values()) {
       if (!user.online) continue;
+      if (dates.has(user.id)) continue;
       const pub = setStatus(user.id, "studeren", undefined, mins);
       if (pub) players.push(pub);
     }
@@ -839,7 +860,9 @@ export function createStore(world: World) {
       if (chat.length > 120) chat.shift();
       user.typing = false;
       user.draft = "";
-      const ids = [...users.values()].filter((u) => u.online && !isSilent(u)).map((u) => u.id);
+      const ids = [...users.values()]
+        .filter((u) => u.online && !isSilent(u) && !isBlocked(user.id, u.id))
+        .map((u) => u.id);
       return { msg, ids };
     }
 
@@ -891,15 +914,26 @@ export function createStore(world: World) {
     return { user: publicUser(user) };
   }
 
-  function sayIce(userId: string, _source: IceSource, _otherId?: string): { text: string; user: PublicPlayer } | { error: string } {
+  function sayIce(
+    userId: string,
+    _source: IceSource,
+    otherId?: string
+  ): { text: string; user: PublicPlayer; otherId?: string } | { error: string } {
     const user = get(userId);
     if (!user) return { error: "Niet ingelogd." };
     if (isSilent(user)) return { error: "Je zit in studeermodus. Kies Pauze of Kennismaken voor een ijsbreker." };
+    let other: User | null = null;
+    if (otherId) {
+      other = get(otherId);
+      if (!other || other.id === user.id) return { error: "Deze student is niet (meer) in de tent." };
+      if (isBlocked(user.id, other.id)) return { error: "Je kunt deze student geen ijsbreker sturen." };
+      if (isSilent(other)) return { error: "Die student zit in studeermodus — niet storen." };
+    }
     const text = ICEBREAKERS[Math.floor(Math.random() * ICEBREAKERS.length)];
     user.bubble = text;
     user.bubbleUntil = Date.now() + BUBBLE_MS;
     user.waving = "";
-    return { text, user: publicUser(user) };
+    return { text, user: publicUser(user), otherId: other?.id };
   }
 
   function block(userId: string, otherId: string): { blocked: true } | { error: string } {
@@ -937,7 +971,38 @@ export function createStore(world: World) {
     };
     reports.push(item);
     if (reports.length > 40) reports.shift();
+    persistHost();
     return { report: item };
+  }
+
+  function unkick(identity: string): { ok: true; name: string } | { error: string } {
+    const key = String(identity || "").trim();
+    const found = kicked.filter((k) => k.identity === key);
+    if (!found.length) return { error: "Deze student staat niet op de kick-lijst." };
+    for (let i = kicked.length - 1; i >= 0; i--) {
+      if (kicked[i].identity === key) kicked.splice(i, 1);
+    }
+    persistHost();
+    return { ok: true, name: found[0]?.name || "Student" };
+  }
+
+  function releaseDesk(deskId: unknown): { ok: true; name: string; id: string } | { error: string } {
+    const desk = deskById(world, deskId);
+    if (!desk) return { error: "Dit bureau bestaat niet." };
+    const now = Date.now();
+    const holders = [...users.values()].filter((u) => holdsDesk(u, desk.id, now));
+    if (!holders.length) return { error: "Dit bureau is al vrij." };
+    const online = holders.find((u) => u.online);
+    if (online) {
+      return { error: `${online.firstName} is nog in de tent. Zet eruit als dat moet.` };
+    }
+    const holder = holders[0];
+    if (!holder) return { error: "Dit bureau is al vrij." };
+    const name = `${holder.firstName} ${holder.lastName}`;
+    const id = holder.id;
+    const removed = removeUser(id, "leave");
+    if (removed && "error" in removed) return { error: removed.error || "Dit bureau is al vrij." };
+    return { ok: true, name, id };
   }
 
   function addDm(from: User, toId: string, text: string): { msg: DirectMessage; to: User; key: string } | { error: string } {
@@ -1365,6 +1430,8 @@ export function createStore(world: World) {
     zoneOccupancy,
     hostSnapshot,
     kick,
+    unkick,
+    releaseDesk,
     prune,
     deskOccupancy,
     dropSocket,

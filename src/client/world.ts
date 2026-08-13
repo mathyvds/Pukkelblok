@@ -66,6 +66,7 @@ const state = {
   minimap: null as HTMLCanvasElement | null,
   board: null as InfoBoard | null,
   prompt: null as TablePrompt | null,
+  blocked: new Set<string>(),
 };
 
 export function mount(opts: {
@@ -101,6 +102,14 @@ export function mount(opts: {
     });
     loop(performance.now());
   }
+}
+
+export function setBlocked(ids: string[]) {
+  state.blocked = new Set(ids);
+}
+
+export function isBlocked(id: string) {
+  return state.blocked.has(id);
 }
 
 export function setBoard(board: InfoBoard) {
@@ -194,7 +203,7 @@ export function walkTo(x: number, y: number) {
 export function walkToPlayer(id: string) {
   const self = me();
   const other = state.players.get(id);
-  if (!self || !other || self.inDate) return;
+  if (!self || !other || self.inDate || isBlocked(id)) return;
   if (self.sittingDeskId || self.sittingSpotId) {
     state.handlers.onStand?.();
     self.sittingDeskId = null;
@@ -224,6 +233,17 @@ function retargetFollow() {
   state.target = { x: px - (dx / dist) * 62, y: py - (dy / dist) * 62 };
 }
 
+export function walkToHome() {
+  const self = me();
+  const w = state.world;
+  if (!self || !w || self.inDate) return "busy" as const;
+  const desk = w.desks.find((d) => d.id === self.homeDeskId);
+  if (!desk) return "busy" as const;
+  if (self.sittingDeskId === self.homeDeskId) return "already" as const;
+  walkTo(desk.seatX, desk.seatY);
+  return "walk" as const;
+}
+
 export function myPlaceHint() {
   const self = me();
   const w = state.world;
@@ -241,6 +261,12 @@ export function myPlaceHint() {
   if (inZone(w, self.x, self.y, "lounge")) return "Lounge · schuif aan bij een cirkel";
   if (inZone(w, self.x, self.y, "speeddate")) return "Speeddate-hoek";
   if (self.sittingDeskId) return `Je zit aan bureau ${self.sittingDeskId}`;
+  const nearDesk = w.desks.find((d) => Math.hypot(self.x - d.seatX, self.y - d.seatY) < 88);
+  if (nearDesk) return `Tik op bureau ${nearDesk.id} om te zitten`;
+  const nearSeat = nearestOpenSeat(self.x, self.y);
+  if (nearSeat && Math.hypot(self.x - nearSeat.seatX, self.y - nearSeat.seatY) < 88) {
+    return nearSeat.kind === "stool" ? "Tik op de kruk om te zitten" : "Tik op de bank om te zitten";
+  }
   if (self.homeDeskId) return `Jouw bureau: ${self.homeDeskId}`;
   return "";
 }
@@ -766,7 +792,7 @@ function syncDom() {
     if (shh) shh.hidden = !silent;
     const bubble = el.querySelector(".bubble")!;
     const self = me();
-    const hideTalk = silent || self?.status === "studeren";
+    const hideTalk = silent || self?.status === "studeren" || isBlocked(p.id);
     if (!hideTalk && p.waving) {
       bubble.textContent = p.waving;
       bubble.className = "bubble on wave";

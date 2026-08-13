@@ -1,3 +1,4 @@
+import "./tz";
 import http from "node:http";
 import crypto from "node:crypto";
 import path from "node:path";
@@ -45,7 +46,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
 });
 
 const world = createWorld();
-const store = createStore(world);
+const store = createStore(world, { persistPath: path.join(ROOT, "data/host.json") });
 const bots = createBots(store);
 const leaveWait = new Map<string, ReturnType<typeof setTimeout>>();
 const enableBots = process.env.SIMULATE === "1" || !isProd;
@@ -226,6 +227,20 @@ app.post("/api/host/kick", requireHost, (req, res) => {
   res.json({ ok: true, state: store.hostSnapshot() });
 });
 
+app.post("/api/host/unkick", requireHost, (req, res) => {
+  const result = store.unkick(String(req.body?.identity || ""));
+  if ("error" in result) return res.status(404).json({ error: result.error });
+  res.json({ ok: true, state: store.hostSnapshot() });
+});
+
+app.post("/api/host/release-desk", requireHost, (req, res) => {
+  const result = store.releaseDesk(req.body?.deskId);
+  if ("error" in result) return res.status(400).json({ error: result.error });
+  cancelLeaveWait(result.id);
+  broadcastLeave(result.id, null);
+  res.json({ ok: true, state: store.hostSnapshot() });
+});
+
 app.post("/api/host/announce", requireHost, (req, res) => {
   const parsed = validateChat(req.body?.text);
   if ("error" in parsed) return res.status(400).json({ error: parsed.error });
@@ -286,6 +301,9 @@ app.post("/api/host/bots", requireHost, (req, res) => {
   io.to("tent").emit("presence", { online: store.onlineCount(), max: MAX_ONLINE });
   res.json({ ok: true, state: store.hostSnapshot() });
 });
+
+app.use("/fonts/geist", express.static(path.join(ROOT, "node_modules/@fontsource-variable/geist/files")));
+app.use("/fonts/bebas", express.static(path.join(ROOT, "node_modules/@fontsource/bebas-neue/files")));
 
 app.get("/host", (_req, res) => {
   res.sendFile(path.join(ROOT, "public/host.html"));
@@ -495,6 +513,13 @@ io.on("connection", (socket) => {
     io.to("tent").emit("player:update", result.user);
     socket.emit("ice:prompt", { text: result.text, source });
     socket.emit("notice", { type: "ice", text: result.text });
+    if (result.otherId) {
+      const fromName = result.user.firstName;
+      emitToSocket(result.otherId, (sid) => {
+        io.to(sid).emit("ice:prompt", { text: result.text, source, fromId: userId, fromName });
+        io.to(sid).emit("notice", { type: "ice", text: `${fromName}: ${result.text}` });
+      });
+    }
   });
 
   socket.on("block", (otherId) => {
