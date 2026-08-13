@@ -2,5 +2,9 @@ node_modules/
 .env
 .env.local
 .DS_Store
+data/
 dist/
+coverage/
+npm-debug.log*
 universe_fixed.html
+*.tsbuildinfo

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Blokbar — Pukkelpop 2026</title>
+  <meta name="description" content="Virtuele tent van Pukkelblok op Pukkelpop 2026. Blok aan je bureau, ontmoet andere studenten, chat en speeddate."/>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
+</head>
+<body>
+  <div id="screen-landing" class="screen active">
+    <div class="hero-bg" aria-hidden="true">
+      <div class="string-lights"></div>
+      <div class="tent-drape"></div>
+    </div>
+    <div class="hero">
+      <p class="eyebrow">PKP26 · 20–23 AUG · Kiewit</p>
+      <h1>Blok<span>bar</span></h1>
+      <p class="lede">
+        Pukkelblok op Pukkelpop. Je zit aan je eigen bureau in de Club-tent.
+        Stap de virtuele Blokbar in om andere studenten te ontmoeten, te chatten
+        of te speeddaten — zonder e-mail, met een cookie en je naam.
+      </p>
+      <div class="hero-actions">
+        <button class="btn-primary" id="btn-enter">Kom de tent in</button>
+      </div>
+      <ul class="hero-points">
+        <li>Tot 100 studenten</li>
+        <li>Loop rond, zit aan een bureau</li>
+        <li>Chat + privéberichten</li>
+        <li>Speeddate-hoek</li>
+      </ul>
+      <a class="pkp-link" href="https://www.pukkelpop.be/nl/" target="_blank" rel="noreferrer">pukkelpop.be</a>
+    </div>
+  </div>
+
+  <div id="screen-join" class="screen">
+    <form class="join-card" id="join-form">
+      <button type="button" class="text-back" id="btn-back">← Terug</button>
+      <h2>Maak je gastaccount</h2>
+      <p class="join-note">Geen e-mail, geen wachtwoord. We onthouden je via een cookie op dit apparaat.</p>
+      <label>Voornaam
+        <input id="first-name" name="firstName" type="text" autocomplete="given-name" maxlength="24" required placeholder="Lisa"/>
+      </label>
+      <label>Familienaam
+        <input id="last-name" name="lastName" type="text" autocomplete="family-name" maxlength="40" required placeholder="Peeters"/>
+      </label>
+      <label>Leeftijd
+        <input id="age" name="age" type="number" min="15" max="80" required placeholder="21"/>
+      </label>
+      <label>School
+        <select id="school" name="school" required>
+          <option value="" disabled selected>Kies je school…</option>
+          <option value="PXL">PXL</option>
+          <option value="UCLL">UCLL</option>
+          <option value="Universiteit Hasselt">Universiteit Hasselt</option>
+          <option value="Andere">Andere</option>
+        </select>
+      </label>
+      <label id="school-other-wrap" hidden>Andere school
+        <input id="school-other" type="text" maxlength="40" placeholder="Naam van je hogeschool of uni"/>
+      </label>
+      <label>Studierichting
+        <input id="program" name="program" type="text" maxlength="60" required placeholder="bv. Verpleegkunde, Informatica"/>
+      </label>
+      <p class="label">Jouw bureau in de tent</p>
+      <p class="mini">Kies het nummer dat op je echte tafel staat. Je start daar in studeermodus.</p>
+      <div class="desk-grid" id="desk-grid"></div>
+      <input type="hidden" id="desk-id" name="deskId" required/>
+      <div class="avatar-block">
+        <p class="label">Jouw avatar</p>
+        <div class="avatar-preview-wrap">
+          <img id="avatar-preview" alt="Voorbeeld avatar" src="/avatars/1.svg"/>
+        </div>
+        <div class="avatar-actions">
+          <button type="button" class="btn-ghost" id="btn-camera">Foto nemen</button>
+          <label class="btn-ghost file-btn">Uploaden
+            <input id="avatar-file" type="file" accept="image/*" hidden/>
+          </label>
+        </div>
+        <p class="mini">Of kies een look:</p>
+        <div class="preset-row" id="preset-row"></div>
+      </div>
+      <video id="cam" playsinline muted hidden></video>
+      <div class="cam-actions" id="cam-actions" hidden>
+        <button type="button" class="btn-primary" id="btn-snap">Neem foto</button>
+        <button type="button" class="btn-ghost" id="btn-cam-cancel">Annuleer</button>
+      </div>
+      <p class="form-error" id="join-error"></p>
+      <button type="submit" class="btn-primary wide" id="btn-join">Stap naar binnen</button>
+    </form>
+  </div>
+
+  <div id="screen-tent" class="screen">
+    <header id="top-hud">
+      <div class="brand">Blok<span>bar</span></div>
+      <div class="presence"><span id="online-count">0</span> / <span id="max-count">100</span> in de tent</div>
+      <div class="hud-sep"></div>
+      <div class="me-chip" id="me-chip">
+        <img id="me-face" alt=""/>
+        <span id="me-name"></span>
+      </div>
+      <select id="status-select" title="Status">
+        <option value="kennismaken">Klaar om kennis te maken</option>
+        <option value="studeren">Studeren</option>
+        <option value="pauze">Pauze</option>
+      </select>
+      <button class="btn-hud" id="btn-speeddate">Speeddate</button>
+      <button class="btn-hud" id="btn-logout">Uitloggen</button>
+    </header>
+
+    <div id="game-main">
+      <div id="viewport">
+        <canvas id="world"></canvas>
+        <div id="world-dom">
+          <div id="avatars"></div>
+        </div>
+        <div id="touch-pad" hidden>
+          <button data-dir="up">▲</button>
+          <div class="touch-mid">
+            <button data-dir="left">◀</button>
+            <button data-dir="right">▶</button>
+          </div>
+          <button data-dir="down">▼</button>
+        </div>
+      </div>
+
+      <aside id="side-panel">
+        <div class="panel-tabs">
+          <button class="ptab on" data-tab="online">Aanwezig</button>
+          <button class="ptab" data-tab="chat">Chat</button>
+          <button class="ptab" data-tab="dm">Berichten <span class="badge" id="dm-badge" hidden>0</span></button>
+        </div>
+        <div class="tab-pane on" id="tab-online">
+          <div class="online-list" id="online-list"></div>
+        </div>
+        <div class="tab-pane" id="tab-chat">
+          <div id="chat-msgs"></div>
+          <form class="chat-input-wrap" id="chat-form">
+            <input id="chat-in" maxlength="200" autocomplete="off" placeholder="Zeg iets in de tent…"/>
+            <button type="submit">➤</button>
+          </form>
+        </div>
+        <div class="tab-pane" id="tab-dm">
+          <div id="dm-empty" class="empty">Klik op iemand om een privébericht te sturen.</div>
+          <div id="dm-thread" hidden>
+            <div class="dm-head">
+              <button type="button" id="dm-back">←</button>
+              <strong id="dm-with"></strong>
+            </div>
+            <div id="dm-msgs"></div>
+            <form class="chat-input-wrap" id="dm-form">
+              <input id="dm-in" maxlength="200" autocomplete="off" placeholder="Privébericht…"/>
+              <button type="submit">➤</button>
+            </form>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <footer id="bot-hud">
+      <span>Beweeg met <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> of klik in de tent. Klik een bureau om te zitten.</span>
+      <span id="desk-hint"></span>
+    </footer>
+  </div>
+
+  <div class="modal-bg" id="modal-profile">
+    <div class="modal" role="dialog">
+      <button class="modal-close" id="profile-close">✕</button>
+      <img class="prof-avi" id="prof-avi" alt=""/>
+      <h3 id="prof-name"></h3>
+      <p class="prof-status" id="prof-status"></p>
+      <p class="prof-meta" id="prof-meta"></p>
+      <p class="prof-meta" id="prof-school"></p>
+      <button class="btn-primary wide" id="prof-dm">Stuur een privébericht</button>
+    </div>
+  </div>
+
+  <div class="modal-bg" id="modal-date">
+    <div class="modal" role="dialog">
+      <h3>Speeddate</h3>
+      <p id="date-copy">Drie minuten, één iemand, één ijsbreker. Daarna mag je verder chatten.</p>
+      <p class="ice" id="date-ice" hidden></p>
+      <p class="date-timer" id="date-timer" hidden></p>
+      <div class="date-actions">
+        <button class="btn-primary" id="date-join">Ik wil speeddaten</button>
+        <button class="btn-ghost" id="date-leave" hidden>Stoppen met wachten</button>
+        <button class="btn-ghost" id="date-close">Sluiten</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="notifs"></div>
+  <script type="module" src="/src/client/main.ts"></script>
+</body>
+</html>

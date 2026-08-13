@@ -1,26 +1,52 @@
-# UniVerse
-UniVerse
+# Blokbar — Pukkelpop 2026
 
-A virtual study lounge for Wilfrid Laurier University students. Study together, level up together.
+Virtuele tent van **Pukkelblok** op [Pukkelpop](https://www.pukkelpop.be/nl/) (PKP26, 20–23 augustus, Kiewit). Studenten blokken aan hun eigen bureau en stappen even deze wereld in om anderen te ontmoeten.
 
-What is UniVerse?
-UniVerse is a browser-based 2D virtual study lounge where Laurier students can hang out as customizable penguin avatars, chat in real time, set study goals, earn XP, and compete on leaderboards. Think Club Penguin meets a university study hall.
-Features
+Geen e-mail. Wel: gastaccount met cookie, foto-avatar, lopen, zitten, chat, privéberichten en speeddate.
 
-Laurier student login with @mylaurier.ca email verification
-Customizable penguin avatars with WASD movement
-Real-time chat
-Study goals tracker
-XP system with levels and daily streaks
-Course-based study rooms
-Leaderboard to stay accountable
-Game Room with Type Sprint, CS Quiz Blitz, Debug Rush, and Math Blitz
-Day and night cycle that changes the environment throughout the day
+## Taal & stack (waarom dit)
 
-Tech Stack
+Voor deze use case is **TypeScript** de aanbevolen taal: dezelfde types voor beweging, chat en avatars op client én server, zodat 100 simultane sockets niet stilletjes uit elkaar lopen.
 
-HTML, CSS, JavaScript
-Firebase Authentication
-Firestore Database
-HTML Canvas for the 2D game world
-GitHub for version control
+| Keuze | Waarom |
+| --- | --- |
+| **TypeScript** | Gedeeld protocol, minder runtime-verrassingen op de festdag |
+| **Node.js + Socket.IO** | WebSockets in de browser, 100 clients is routine |
+| **Vite + Tailwind** | Moderne bundel, HMR, PKP-geel/zwart zonder extra CSS-framework |
+| **Zod** | Join-payload valideren vóór die de tent in gaat |
+| **Geen React/Next** | Een 60fps-wereld vecht met een component-tree; DOM+canvas is hier juister |
+| **Geen Unity/Phaser** | Studenten zitten aan een laptop in Chrome/Safari, niet in een game-client |
+
+Python of PHP zou kunnen, maar de realtime-browserstack is in Node/TS het kortst pad naar “het werkt in de tent”.
+
+## Snel starten
+
+```bash
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 — Vite draait als middleware in hetzelfde proces.
+
+Productie:
+
+```bash
+npm run build
+COOKIE_SECRET=kies-iets-geheims npm start
+```
+
+## Wat zit erin
+
+- Gastlogin met voornaam, familienaam, leeftijd, school en studierichting (cookie, 7 dagen)
+- Bureaunummer 1–24 bij joinen = dezelfde tafel als in de echte tent; je start daar in studeermodus
+- Status **Studeren** zet je terug aan jouw bureau; Pauze of Kennismaken om rond te lopen
+- Avatar: foto nemen, uploaden, of een look kiezen
+- Tot 100 studenten, WASD / klik / touch
+- Bureaus 1–24, tentchat met tekst boven de avatar, DMs, speeddate
+
+## Aanbevelingen
+
+- Host lokaal op tent-wifi als clients van elkaar geïsoleerd zijn
+- Zet bureau-nummers 1–24 op de echte tafels
+- Nog niet: voice, XP, minigames
+- Later: proximity-chat, vak-filter, pauze-timer, host-kick

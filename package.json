@@ -1,0 +1,36 @@
+{
+  "name": "blokbar",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Virtuele tent van Pukkelblok op Pukkelpop 2026 (PKP26).",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "build": "vite build",
+    "start": "NODE_ENV=production tsx src/server/index.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.2.8",
+    "@fontsource/bebas-neue": "^5.2.7",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "tsx": "^4.20.5",
+    "zod": "^4.0.17"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.12",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.0",
+    "tailwindcss": "^4.1.12",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
+  }
+}
