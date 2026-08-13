@@ -3,13 +3,9 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Blokbar — Pukkelblok</title>
-  <meta name="description" content="Virtuele tent van Pukkelblok. Blok aan je bureau, ontmoet andere studenten, chat en speeddate."/>
+  <title>Blokbar — Pukkelpop 2026</title>
+  <meta name="description" content="Virtuele tent van Pukkelblok op Pukkelpop 2026. Blok aan je bureau, ontmoet andere studenten, chat en speeddate."/>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"/>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="/styles.css"/>
 </head>
 <body>
   <div id="screen-landing" class="screen active">
@@ -18,12 +14,12 @@
       <div class="tent-drape"></div>
     </div>
     <div class="hero">
-      <p class="eyebrow">Pukkelblok · Club-tent · Kiewit</p>
+      <p class="eyebrow">PKP26 · 20–23 AUG · Kiewit</p>
       <h1>Blok<span>bar</span></h1>
       <p class="lede">
-        Je zit aan je eigen bureau in de tent. Stap even de virtuele Blokbar in
-        om andere studenten te ontmoeten, te chatten of te speeddaten —
-        zonder e-mail, met een cookie en je voornaam.
+        Pukkelblok op Pukkelpop. Je zit aan je eigen bureau in de Club-tent.
+        Stap de virtuele Blokbar in om andere studenten te ontmoeten, te chatten
+        of te speeddaten — zonder e-mail, met een cookie en je naam.
       </p>
       <div class="hero-actions">
         <button class="btn-primary" id="btn-enter">Kom de tent in</button>
@@ -34,6 +30,7 @@
         <li>Chat + privéberichten</li>
         <li>Speeddate-hoek</li>
       </ul>
+      <a class="pkp-link" href="https://www.pukkelpop.be/nl/" target="_blank" rel="noreferrer">pukkelpop.be</a>
     </div>
   </div>
 
@@ -48,11 +45,28 @@
       <label>Familienaam
         <input id="last-name" name="lastName" type="text" autocomplete="family-name" maxlength="40" required placeholder="Peeters"/>
       </label>
-      <label>Vakgebied <span class="optional">(optioneel, voor speeddate)</span>
-        <select id="study" name="study">
-          <option value="">Liever niet zeggen</option>
+      <label>Leeftijd
+        <input id="age" name="age" type="number" min="15" max="80" required placeholder="21"/>
+      </label>
+      <label>School
+        <select id="school" name="school" required>
+          <option value="" disabled selected>Kies je school…</option>
+          <option value="PXL">PXL</option>
+          <option value="UCLL">UCLL</option>
+          <option value="Universiteit Hasselt">Universiteit Hasselt</option>
+          <option value="Andere">Andere</option>
         </select>
       </label>
+      <label id="school-other-wrap" hidden>Andere school
+        <input id="school-other" type="text" maxlength="40" placeholder="Naam van je hogeschool of uni"/>
+      </label>
+      <label>Studierichting
+        <input id="program" name="program" type="text" maxlength="60" required placeholder="bv. Verpleegkunde, Informatica"/>
+      </label>
+      <p class="label">Jouw bureau in de tent</p>
+      <p class="mini">Kies het nummer dat op je echte tafel staat. Je start daar in studeermodus.</p>
+      <div class="desk-grid" id="desk-grid"></div>
+      <input type="hidden" id="desk-id" name="deskId" required/>
       <div class="avatar-block">
         <p class="label">Jouw avatar</p>
         <div class="avatar-preview-wrap">
@@ -89,12 +103,9 @@
       <span id="pause-timer" class="pause-timer" hidden>Pauze 10:00</span>
       <select id="status-select" title="Status">
         <option value="kennismaken">Klaar om kennis te maken</option>
-        <option value="blokken">Aan het blokken</option>
+        <option value="studeren">Studeren</option>
         <option value="pauze">Pauze (10 min)</option>
       </select>
-      <label class="desk-pick">Bureau
-        <input id="desk-select" type="number" min="1" max="100" inputmode="numeric" placeholder="1–100" title="Nummer van je echte bureau"/>
-      </label>
       <button class="btn-hud" id="btn-speeddate">Speeddate</button>
       <button class="btn-hud" id="btn-logout">Uitloggen</button>
     </header>
@@ -102,11 +113,10 @@
     <div id="game-main">
       <div id="viewport">
         <canvas id="world"></canvas>
+        <div id="announce-banner" hidden></div>
         <div id="world-dom">
           <div id="avatars"></div>
         </div>
-        <canvas id="minimap" width="180" height="126" aria-label="Kaart van de tent"></canvas>
-        <div id="announce-banner" hidden></div>
         <div id="touch-pad" hidden>
           <button data-dir="up">▲</button>
           <div class="touch-mid">
@@ -152,7 +162,7 @@
     </div>
 
     <footer id="bot-hud">
-      <span>Beweeg met <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> of klik. <kbd>E</kbd> = dichtstbijzijnde bureau. Chat is in de buurt; 📣 is de hele tent.</span>
+      <span>Beweeg met <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> of klik. Chat is in de buurt; 📣 is de hele tent.</span>
       <span id="desk-hint"></span>
     </footer>
   </div>
@@ -163,8 +173,8 @@
       <img class="prof-avi" id="prof-avi" alt=""/>
       <h3 id="prof-name"></h3>
       <p class="prof-status" id="prof-status"></p>
-      <p class="prof-meta" id="prof-study"></p>
       <p class="prof-meta" id="prof-meta"></p>
+      <p class="prof-meta" id="prof-school"></p>
       <button class="btn-primary wide" id="prof-dm">Stuur een privébericht</button>
     </div>
   </div>
@@ -173,9 +183,9 @@
     <div class="modal" role="dialog">
       <h3>Speeddate</h3>
       <p id="date-copy">Drie minuten, één iemand, één ijsbreker. Daarna mag je verder chatten.</p>
-      <label class="check-row" id="date-filter-row">
+      <label class="check-row">
         <input type="checkbox" id="date-same-study"/>
-        Liever iemand uit hetzelfde vakgebied
+        Liever iemand met dezelfde studierichting
       </label>
       <p class="ice" id="date-ice" hidden></p>
       <p class="date-timer" id="date-timer" hidden></p>
@@ -188,8 +198,6 @@
   </div>
 
   <div id="notifs"></div>
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/world.js"></script>
-  <script src="/app.js"></script>
+  <script type="module" src="/src/client/main.ts"></script>
 </body>
 </html>
