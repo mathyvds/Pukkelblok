@@ -500,7 +500,7 @@ async function attachFrontend() {
   const { createServer } = await import("vite");
   const vite = await createServer({
     root: ROOT,
-    server: { middlewareMode: true },
+    server: { middlewareMode: true, allowedHosts: true },
     appType: "spa",
   });
   app.use(vite.middlewares);
