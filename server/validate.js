@@ -4,6 +4,22 @@ export const MAX_ONLINE = 100;
 export const MAX_AVATAR_BYTES = 100_000;
 export const MAX_CHAT = 200;
 export const MAX_STATUS = 60;
+export const CHAT_COOLDOWN_MS = 700;
+export const SHOUT_COOLDOWN_MS = 60_000;
+
+export const STUDIES = [
+  "Rechten",
+  "Geneeskunde",
+  "Psychologie",
+  "Economie / TEW",
+  "Handelsingenieur",
+  "Ingenieurswetenschappen",
+  "Informatica",
+  "Taal- en letterkunde",
+  "Politieke wetenschappen",
+  "Onderwijs",
+  "Andere",
+];
 
 export function cleanName(value, max) {
   return String(value || "")
@@ -26,6 +42,21 @@ export function validateNames(firstName, lastName) {
 export function validateStatus(status) {
   const allowed = new Set(["blokken", "pauze", "kennismaken"]);
   return allowed.has(status) ? status : "kennismaken";
+}
+
+export function validateStudy(value) {
+  const study = String(value || "").trim();
+  if (!study) return { study: "" };
+  if (!STUDIES.includes(study)) return { error: "Kies een vakgebied uit de lijst." };
+  return { study };
+}
+
+export function validateDeskId(id) {
+  const deskId = Number(id);
+  if (!Number.isInteger(deskId) || deskId < 1 || deskId > 24) {
+    return { error: "Kies bureau 1 tot 24." };
+  }
+  return { deskId };
 }
 
 export function validateChat(text) {

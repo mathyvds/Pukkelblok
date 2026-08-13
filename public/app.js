@@ -25,6 +25,11 @@
     dmEmpty: $("dm-empty"),
     dmBadge: $("dm-badge"),
     deskHint: $("desk-hint"),
+    pauseTimer: $("pause-timer"),
+    deskSelect: $("desk-select"),
+    study: $("study"),
+    shout: $("chat-shout"),
+    banner: $("announce-banner"),
   };
 
   const state = {
@@ -36,8 +41,10 @@
     dmUnread: 0,
     dms: new Map(),
     dateTimer: null,
+    pauseClock: null,
     camStream: null,
     lastTyping: 0,
+    studies: [],
   };
 
   function show(name) {
@@ -62,6 +69,41 @@
     const base = map[p.status] || "In de tent";
     return p.statusText ? `${base} · ${p.statusText}` : base;
   }
+
+  const STUDIES = [
+    "Rechten",
+    "Geneeskunde",
+    "Psychologie",
+    "Economie / TEW",
+    "Handelsingenieur",
+    "Ingenieurswetenschappen",
+    "Informatica",
+    "Taal- en letterkunde",
+    "Politieke wetenschappen",
+    "Onderwijs",
+    "Andere",
+  ];
+
+  function fillStudies(list) {
+    const studies = list?.length ? list : STUDIES;
+    state.studies = studies;
+    ui.study.innerHTML = `<option value="">Liever niet zeggen</option>` + studies.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  }
+
+  function fillDesks() {
+    ui.deskSelect.innerHTML =
+      `<option value="">Kies…</option>` +
+      Array.from({ length: 24 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join("");
+  }
+
+  fillStudies();
+  fillDesks();
+  fetch("/api/world")
+    .then((r) => r.json())
+    .then((w) => {
+      if (w.studies) fillStudies(w.studies);
+    })
+    .catch(() => {});
 
   for (let i = 1; i <= 8; i++) {
     const btn = document.createElement("button");
@@ -155,6 +197,7 @@
         body: JSON.stringify({
           firstName: ui.first.value,
           lastName: ui.last.value,
+          study: ui.study.value,
           avatar: state.avatar,
         }),
       });
@@ -186,11 +229,13 @@
     $("me-name").textContent = user.firstName;
     $("me-face").src = user.avatarUrl;
     $("status-select").value = user.status || "kennismaken";
+    syncPauseClock(user);
     BlokWorld.mount({
       canvas: $("world"),
       viewport: $("viewport"),
       layer: $("world-dom"),
       avatarsEl: $("avatars"),
+      minimap: $("minimap"),
       handlers: {
         onMove: (pos) => state.socket?.emit("move", pos),
         onSit: (deskId) => {
@@ -237,6 +282,8 @@
       ui.chatMsgs.innerHTML = "";
       payload.chat.forEach(addChatLine);
       renderOnline();
+      if (payload.studies) fillStudies(payload.studies);
+      syncPauseClock(payload.you);
       notify(`Welkom in de Blokbar, ${payload.you.firstName}.`);
     });
 
@@ -264,8 +311,12 @@
       BlokWorld.upsert(merged);
       if (p.id === state.me?.id) {
         state.me = merged;
-        if (merged.sittingDeskId) ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
-        else if (!ui.deskHint.textContent.startsWith("Je zit")) ui.deskHint.textContent = "";
+        if (merged.sittingDeskId) {
+          ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
+          ui.deskSelect.value = String(merged.sittingDeskId);
+        } else if (!ui.deskHint.textContent.startsWith("Je zit")) ui.deskHint.textContent = "";
+        $("status-select").value = merged.status || $("status-select").value;
+        syncPauseClock(merged);
       }
       renderOnline();
     });
@@ -291,7 +342,18 @@
       state.dms.set(otherId, messages);
       if (state.dmTarget === otherId) renderDm();
     });
-    socket.on("notice", (n) => notify(n.text));
+    socket.on("notice", (n) => {
+      notify(n.text);
+      if (n.type === "pause-end") {
+        $("status-select").value = "blokken";
+        syncPauseClock({ status: "blokken", pauseUntil: 0 });
+      }
+    });
+    socket.on("announce", (a) => showAnnounce(a.text));
+    socket.on("kicked", (k) => {
+      notify(k.reason || "Je bent uit de tent gezet.");
+      setTimeout(() => location.reload(), 1200);
+    });
     socket.on("speeddate:queued", (q) => {
       $("date-copy").textContent = q.queued
         ? `Je staat in de rij (${q.position}). We koppelen je zodra er iemand klaar is.`
@@ -326,9 +388,10 @@
   function addChatLine(msg) {
     const mine = msg.from === state.me?.id;
     const el = document.createElement("div");
-    el.className = "chat-msg" + (mine ? " me" : "");
+    el.className = "chat-msg" + (mine ? " me" : "") + (msg.scope === "tent" ? " shout" : "");
     const time = new Date(msg.at).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" });
-    el.innerHTML = `<div class="msg-head"><span class="msg-name">${esc(msg.firstName)}</span><span class="msg-time">${time}</span></div><div class="msg-body">${esc(msg.text)}</div>`;
+    const scope = msg.scope === "tent" ? `<span class="msg-scope">hele tent</span>` : "";
+    el.innerHTML = `<div class="msg-head"><span class="msg-name">${esc(msg.firstName)}</span>${scope}<span class="msg-time">${time}</span></div><div class="msg-body">${esc(msg.text)}</div>`;
     ui.chatMsgs.appendChild(el);
     ui.chatMsgs.scrollTop = ui.chatMsgs.scrollHeight;
   }
@@ -366,6 +429,7 @@
     $("prof-avi").src = p.avatarUrl;
     $("prof-name").textContent = fullName(p);
     $("prof-status").textContent = statusLabel(p);
+    $("prof-study").textContent = p.study ? p.study : "Geen vakgebied opgegeven";
     $("prof-meta").textContent = p.sittingDeskId ? `Zit aan bureau ${p.sittingDeskId}` : "Loopt rond in de tent";
     $("prof-dm").onclick = () => {
       $("modal-profile").classList.remove("open");
@@ -433,6 +497,17 @@
     state.socket.emit("typing", { typing: false, draft: "" });
   });
 
+  ui.shout.addEventListener("click", () => {
+    const text = ui.chatIn.value.trim();
+    if (!text) {
+      notify("Typ eerst een bericht, daarna 📣 voor de hele tent.");
+      return;
+    }
+    state.socket.emit("shout", text);
+    ui.chatIn.value = "";
+    state.socket.emit("typing", { typing: false, draft: "" });
+  });
+
   ui.chatIn.addEventListener("input", () => {
     const now = Date.now();
     if (now - state.lastTyping < 120) return;
@@ -466,9 +541,23 @@
     state.socket.emit("status", { status: $("status-select").value });
   });
 
+  ui.deskSelect.addEventListener("change", () => {
+    const id = Number(ui.deskSelect.value);
+    if (!id) return;
+    const ok = BlokWorld.goToDesk(id);
+    if (!ok) {
+      notify("Dat bureau is bezet of bestaat niet.");
+      ui.deskSelect.value = state.me?.sittingDeskId ? String(state.me.sittingDeskId) : "";
+      return;
+    }
+    ui.deskHint.textContent = `Je zit aan bureau ${id}`;
+  });
+
   $("btn-speeddate").addEventListener("click", () => $("modal-date").classList.add("open"));
   $("date-close").addEventListener("click", () => $("modal-date").classList.remove("open"));
-  $("date-join").addEventListener("click", () => state.socket.emit("speeddate:join"));
+  $("date-join").addEventListener("click", () =>
+    state.socket.emit("speeddate:join", { preferSameStudy: $("date-same-study").checked })
+  );
   $("date-leave").addEventListener("click", () => state.socket.emit("speeddate:leave"));
   $("profile-close").addEventListener("click", () => $("modal-profile").classList.remove("open"));
 
@@ -482,6 +571,36 @@
     };
     tick();
     state.dateTimer = setInterval(tick, 250);
+  }
+
+  function syncPauseClock(user) {
+    clearInterval(state.pauseClock);
+    if (!user || user.status !== "pauze" || !user.pauseUntil) {
+      ui.pauseTimer.hidden = true;
+      return;
+    }
+    ui.pauseTimer.hidden = false;
+    const tick = () => {
+      const left = Math.max(0, user.pauseUntil - Date.now());
+      const m = Math.floor(left / 60000);
+      const s = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
+      ui.pauseTimer.textContent = `Pauze ${m}:${s}`;
+      if (left <= 0) {
+        clearInterval(state.pauseClock);
+        ui.pauseTimer.hidden = true;
+      }
+    };
+    tick();
+    state.pauseClock = setInterval(tick, 250);
+  }
+
+  function showAnnounce(text) {
+    ui.banner.hidden = false;
+    ui.banner.textContent = text;
+    clearTimeout(ui.banner._t);
+    ui.banner._t = setTimeout(() => {
+      ui.banner.hidden = true;
+    }, 8000);
   }
 
   $("btn-logout").addEventListener("click", async () => {

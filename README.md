@@ -7,13 +7,18 @@ Geen e-mail, geen university-login, geen gamerooms. Wel: gastaccount met cookie,
 ## Wat zit erin
 
 - Gastlogin met **voornaam + familienaam** (cookie, 7 dagen)
+- Optioneel **vakgebied** (voor speeddate-matching)
 - Avatar: foto nemen, uploaden, of een look kiezen (geen pinguïns)
 - Eén tent, tot **100** studenten tegelijk
-- Bewegen met WASD / pijltjes / klikken / touch
-- Bureaus 1–24: klik om te zitten (handig: kies het nummer van je echte plek)
-- Tentchat: tijdens typen én na verzenden verschijnt de tekst **boven je avatar**
+- Bewegen met WASD / pijltjes / klikken / touch · **E** = dichtstbijzijnde bureau
+- Bureaus 1–24: klik, of kies het nummer van je echte plek in de balk
+- **Proximity-chat**: wie dichtbij staat hoort je; 📣 roept naar de hele tent (1×/min)
+- Spraakwolk boven de avatar bij typen en nabije chat — **niet** bij privéberichten
 - Privéberichten (kennismaken / speeddate)
-- Speeddate-hoek: wachtrij, match, 3 minuten + ijsbreker
+- Speeddate-hoek: wachtrij, match, 3 minuten + ijsbreker, optioneel zelfde vak eerst
+- **Pauze van 10 minuten**, daarna een tik terug naar blokken
+- Minimap + bezette bureaus
+- Host-dashboard (`/host`): omroep, kick, bezetting
 
 ## Snel werkend krijgen (festival-dag)
 
@@ -21,32 +26,31 @@ Geen e-mail, geen university-login, geen gamerooms. Wel: gastaccount met cookie,
 
    ```bash
    npm install
-   COOKIE_SECRET=kies-iets-geheims npm start
+   COOKIE_SECRET=kies-iets-geheims HOST_PIN=kies-een-code npm start
    ```
 
 2. Open `http://localhost:3000` (of het LAN-IP van de tent-wifi).
 3. Plak een QR-code aan elke tafel naar die URL.
-4. Studenten komen binnen met voornaam, familienaam en een foto. Klaar.
+4. Host-laptop: `http://localhost:3000/host` met dezelfde `HOST_PIN`.
+5. Studenten komen binnen met voornaam, familienaam en een foto. Klaar.
 
 Eén Node-proces is genoeg voor 100 simultane sockets. Zet `COOKIE_SECURE=true` alleen achter HTTPS.
 
 ### Deploy in 10 minuten
 
-Railway, Render of Fly.io: root = deze repo, startcommando `npm start`, poort uit `PORT`. Zet `COOKIE_SECRET`. Geen database nodig (alles zit in het geheugen — herstart wist de tent, wat voor één festdag oké is).
+Railway, Render of Fly.io: root = deze repo, startcommando `npm start`, poort uit `PORT`. Zet `COOKIE_SECRET` en `HOST_PIN`. Geen database nodig (alles zit in het geheugen — herstart wist de tent, wat voor één festdag oké is).
 
 ## Aanbevelingen
 
 **Wifi in de tent.** WebSockets moeten open blijven. Als festival-wifi clients isoleert, host lokaal op een access point in de Club-tent.
 
-**Fysieke bureaus = virtuele bureaus.** Zet nummers 1–24 op de echte tafels. Studenten zitten dan in de wereld “naast” wie ook fysiek naast hen zit, plus ze kunnen naar de lounge of speeddate-hoek lopen.
+**Fysieke bureaus = virtuele bureaus.** Zet nummers 1–24 op de echte tafels. Studenten kiezen dat nummer in de balk en zitten “naast” wie ook fysiek naast hen zit.
 
-**Moderatie (volgende stap).** Een host-laptop met kick/mute en een vast scherm in de tent dat de wereld toont. Nu nog niet ingebouwd om het concept simpel te houden.
+**Host-laptop.** Open `/host` op een vast scherm aan de infostand. Kick bij misbruik, omroep als de speeddate-ronde begint.
 
 **Niet doen op dag 1.** Voice chat, XP, minigames, e-mail. Dat leidt af van blokken en kennismaken.
 
-**Wel later, als het werkt.** Proximity-chat (alleen wie dichtbij staat hoort je), optioneel vak/school als filter voor speeddate, en een “pauze-timer” van 10 minuten zodat mensen terug naar hun cursus gaan.
-
-**Privacy.** Geen accounts, geen mail. Foto’s blijven in het servergeheugen tot herstart. Zeg dat duidelijk aan de ingang: gastcookie, geen tracking.
+**Privacy.** Geen accounts, geen mail. Foto’s blijven in het servergeheugen tot herstart. Zeg dat duidelijk aan de ingang: gastcookie, geen tracking. Privéberichten verschijnen niet als tekstwolk boven iemands hoofd.
 
 ## Ontwikkelen
 

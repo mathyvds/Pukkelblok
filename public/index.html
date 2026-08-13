@@ -48,6 +48,11 @@
       <label>Familienaam
         <input id="last-name" name="lastName" type="text" autocomplete="family-name" maxlength="40" required placeholder="Peeters"/>
       </label>
+      <label>Vakgebied <span class="optional">(optioneel, voor speeddate)</span>
+        <select id="study" name="study">
+          <option value="">Liever niet zeggen</option>
+        </select>
+      </label>
       <div class="avatar-block">
         <p class="label">Jouw avatar</p>
         <div class="avatar-preview-wrap">
@@ -81,11 +86,17 @@
         <img id="me-face" alt=""/>
         <span id="me-name"></span>
       </div>
+      <span id="pause-timer" class="pause-timer" hidden>Pauze 10:00</span>
       <select id="status-select" title="Status">
         <option value="kennismaken">Klaar om kennis te maken</option>
         <option value="blokken">Aan het blokken</option>
-        <option value="pauze">Pauze</option>
+        <option value="pauze">Pauze (10 min)</option>
       </select>
+      <label class="desk-pick">Bureau
+        <select id="desk-select" title="Ga naar je echte bureau">
+          <option value="">Kies…</option>
+        </select>
+      </label>
       <button class="btn-hud" id="btn-speeddate">Speeddate</button>
       <button class="btn-hud" id="btn-logout">Uitloggen</button>
     </header>
@@ -96,6 +107,8 @@
         <div id="world-dom">
           <div id="avatars"></div>
         </div>
+        <canvas id="minimap" width="180" height="126" aria-label="Kaart van de tent"></canvas>
+        <div id="announce-banner" hidden></div>
         <div id="touch-pad" hidden>
           <button data-dir="up">▲</button>
           <div class="touch-mid">
@@ -118,8 +131,9 @@
         <div class="tab-pane" id="tab-chat">
           <div id="chat-msgs"></div>
           <form class="chat-input-wrap" id="chat-form">
-            <input id="chat-in" maxlength="200" autocomplete="off" placeholder="Zeg iets in de tent…"/>
-            <button type="submit">➤</button>
+            <input id="chat-in" maxlength="200" autocomplete="off" placeholder="Zeg iets tegen wie in de buurt is…"/>
+            <button type="submit" title="Stuur naar wie dichtbij staat">➤</button>
+            <button type="button" id="chat-shout" title="Roep naar de hele tent (1× per minuut)">📣</button>
           </form>
         </div>
         <div class="tab-pane" id="tab-dm">
@@ -140,7 +154,7 @@
     </div>
 
     <footer id="bot-hud">
-      <span>Beweeg met <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> of klik in de tent. Klik een bureau om te zitten.</span>
+      <span>Beweeg met <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> of klik. <kbd>E</kbd> = dichtstbijzijnde bureau. Chat is in de buurt; 📣 is de hele tent.</span>
       <span id="desk-hint"></span>
     </footer>
   </div>
@@ -151,6 +165,7 @@
       <img class="prof-avi" id="prof-avi" alt=""/>
       <h3 id="prof-name"></h3>
       <p class="prof-status" id="prof-status"></p>
+      <p class="prof-meta" id="prof-study"></p>
       <p class="prof-meta" id="prof-meta"></p>
       <button class="btn-primary wide" id="prof-dm">Stuur een privébericht</button>
     </div>
@@ -160,6 +175,10 @@
     <div class="modal" role="dialog">
       <h3>Speeddate</h3>
       <p id="date-copy">Drie minuten, één iemand, één ijsbreker. Daarna mag je verder chatten.</p>
+      <label class="check-row" id="date-filter-row">
+        <input type="checkbox" id="date-same-study"/>
+        Liever iemand uit hetzelfde vakgebied
+      </label>
       <p class="ice" id="date-ice" hidden></p>
       <p class="date-timer" id="date-timer" hidden></p>
       <div class="date-actions">

@@ -1,8 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateNames, parseAvatar, validateChat, shirtColor } from "../server/validate.js";
-import { createWorld, clampMove, PLAYER_R } from "../server/world.js";
+import { validateNames, parseAvatar, validateChat, validateStudy, shirtColor } from "../server/validate.js";
+import { createWorld, clampMove, PLAYER_R, DATE_WAIT_FALLBACK_MS } from "../server/world.js";
 import { createStore } from "../server/store.js";
+
+const avatar = { kind: "preset", preset: 1 };
+
+function twoUsers(store, extraA = {}, extraB = {}) {
+  const a = store.join({ firstName: "Adam", lastName: "Aerts", avatar, ...extraA }).user;
+  const b = store.join({ firstName: "Britt", lastName: "Beelen", avatar, ...extraB }).user;
+  store.connect(a.id, "s1");
+  store.connect(b.id, "s2");
+  return { a, b };
+}
 
 test("namen: Nederlandse letters en koppeltekens", () => {
   const ok = validateNames("José", "Van der Berg");
@@ -21,6 +31,12 @@ test("chat: trim en limiet", () => {
   assert.ok(validateChat("   ").error);
 });
 
+test("vakgebied: lijst of leeg", () => {
+  assert.equal(validateStudy("Informatica").study, "Informatica");
+  assert.equal(validateStudy("").study, "");
+  assert.ok(validateStudy("Hacken").error);
+});
+
 test("avatar: preset en te grote foto", () => {
   assert.equal(parseAvatar({ preset: 3 }).preset, 3);
   assert.ok(parseAvatar({ preset: 99 }).error);
@@ -36,7 +52,6 @@ test("wereld: botsing houdt je uit de muur", () => {
 
 test("store: gastaccount zonder e-mail, max 100", () => {
   const store = createStore(createWorld());
-  const avatar = { kind: "preset", preset: 1 };
   const a = store.join({ firstName: "Lina", lastName: "Peeters", avatar });
   assert.ok(a.user.id);
   assert.equal(a.user.sid.length > 8, true);
@@ -50,14 +65,88 @@ test("store: gastaccount zonder e-mail, max 100", () => {
 
 test("speeddate koppelt twee wachtenden", () => {
   const store = createStore(createWorld());
-  const avatar = { kind: "preset", preset: 2 };
-  const a = store.join({ firstName: "Adam", lastName: "Aerts", avatar }).user;
-  const b = store.join({ firstName: "Britt", lastName: "Beelen", avatar }).user;
-  store.connect(a.id, "s1");
-  store.connect(b.id, "s2");
+  const { a, b } = twoUsers(store);
   store.joinQueue(a.id);
   store.joinQueue(b.id);
   const { started } = store.matchDates();
   assert.equal(started.length, 1);
   assert.ok(started[0].ice.length > 0);
+});
+
+test("speeddate: zelfde vak eerst, anders wachten", () => {
+  const store = createStore(createWorld());
+  const a = store.join({ firstName: "Adam", lastName: "Aerts", avatar, study: "Informatica" }).user;
+  const b = store.join({ firstName: "Britt", lastName: "Beelen", avatar, study: "Rechten" }).user;
+  const c = store.join({ firstName: "Cas", lastName: "Claes", avatar, study: "Informatica" }).user;
+  store.connect(a.id, "s1");
+  store.connect(b.id, "s2");
+  store.connect(c.id, "s3");
+  store.joinQueue(a.id, true);
+  store.joinQueue(b.id, true);
+  store.joinQueue(c.id, true);
+  const { started, waiting } = store.matchDates();
+  assert.equal(started.length, 1);
+  const pair = [started[0].a, started[0].b].sort();
+  assert.deepEqual(pair, [a.id, c.id].sort());
+  assert.equal(waiting, 1);
+});
+
+test("speeddate: na wachttijd toch matchen over vak heen", () => {
+  const store = createStore(createWorld());
+  const { a, b } = twoUsers(store, { study: "Informatica" }, { study: "Rechten" });
+  const now = Date.now();
+  store.joinQueue(a.id, true);
+  store.joinQueue(b.id, true);
+  const { started } = store.matchDates(now + DATE_WAIT_FALLBACK_MS + 10);
+  assert.equal(started.length, 1);
+});
+
+test("privébericht komt niet als spraakwolk in de tent", () => {
+  const store = createStore(createWorld());
+  const { a, b } = twoUsers(store);
+  const result = store.addDm(a, b.id, "geheim");
+  assert.equal(result.msg.text, "geheim");
+  assert.equal(a.bubble, "");
+});
+
+test("pauze loopt af en zet status terug op blokken", () => {
+  const store = createStore(createWorld());
+  const { a } = twoUsers(store);
+  store.setStatus(a.id, "pauze");
+  assert.equal(a.status, "pauze");
+  assert.ok(a.pauseUntil > Date.now());
+  const ended = store.tickPauses(a.pauseUntil + 1);
+  assert.equal(ended.length, 1);
+  assert.equal(a.status, "blokken");
+  assert.equal(a.pauseUntil, 0);
+});
+
+test("proximity: verre studenten horen nabije chat niet", () => {
+  const store = createStore(createWorld());
+  const { a, b } = twoUsers(store);
+  a.x = 80;
+  a.y = 400;
+  b.x = 2200;
+  b.y = 1400;
+  const near = store.nearbyIds(a.id);
+  assert.ok(near.includes(a.id));
+  assert.equal(near.includes(b.id), false);
+});
+
+test("host kan iemand kicken", () => {
+  const store = createStore(createWorld());
+  const { a, b } = twoUsers(store);
+  const kicked = store.kick(a.id);
+  assert.equal(kicked.name, "Adam Aerts");
+  assert.equal(store.get(a.id), null);
+  assert.ok(store.get(b.id));
+});
+
+test("chat: tweede bericht te snel wordt genegeerd", () => {
+  const store = createStore(createWorld());
+  const { a } = twoUsers(store);
+  const first = store.addChat(a, "hallo", "near");
+  assert.ok(first.msg);
+  const second = store.addChat(a, "nog eens", "near");
+  assert.equal(second.error, "silent");
 });

@@ -22,6 +22,8 @@
     lastPos: { x: 0, y: 0, moving: false },
     handlers: {},
     raf: 0,
+    proximity: 420,
+    minimap: null,
   };
 
   const SPEED = 220;
@@ -37,6 +39,7 @@
     state.viewport = opts.viewport;
     state.layer = opts.layer;
     state.avatarsEl = opts.avatarsEl;
+    state.minimap = opts.minimap || document.getElementById("minimap");
     state.handlers = opts.handlers || {};
     resize();
     window.addEventListener("resize", resize);
@@ -49,6 +52,7 @@
   function setWorld(world) {
     state.world = world;
     state.cache = null;
+    if (world.proximity) state.proximity = world.proximity;
     state.layer.style.width = world.width + "px";
     state.layer.style.height = world.height + "px";
   }
@@ -117,6 +121,10 @@
     if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) {
       e.preventDefault();
     }
+    if (e.key.toLowerCase() === "e") {
+      e.preventDefault();
+      sitNearest();
+    }
   }
   function onKeyUp(e) {
     state.keys[e.key.toLowerCase()] = false;
@@ -130,6 +138,53 @@
     state.touch[dir] = down;
   }
 
+  function occupiedDeskIds() {
+    const ids = new Set();
+    const self = me();
+    for (const p of state.players.values()) {
+      if (p.sittingDeskId && p.id !== self?.id) ids.add(Number(p.sittingDeskId));
+    }
+    return ids;
+  }
+
+  function sitNearest() {
+    if (!state.world) return;
+    const self = me();
+    if (!self) return;
+    const taken = occupiedDeskIds();
+    let best = null;
+    let bestD = 180;
+    for (const desk of state.world.desks) {
+      if (taken.has(desk.id)) continue;
+      const d = Math.hypot(self.x - desk.seatX, self.y - desk.seatY);
+      if (d < bestD) {
+        best = desk;
+        bestD = d;
+      }
+    }
+    if (best) sitAt(best);
+  }
+
+  function sitAt(desk) {
+    const self = me();
+    if (self) {
+      self.sittingDeskId = desk.id;
+      self.x = desk.seatX;
+      self.y = desk.seatY;
+      self.moving = false;
+    }
+    state.handlers.onSit?.(desk.id);
+    state.target = null;
+  }
+
+  function goToDesk(deskId) {
+    const desk = state.world?.desks.find((d) => d.id === Number(deskId));
+    if (!desk) return false;
+    if (occupiedDeskIds().has(desk.id)) return false;
+    sitAt(desk);
+    return true;
+  }
+
   function onClick(e) {
     const worldPt = screenToWorld(e.clientX, e.clientY);
     const person = hitPerson(worldPt.x, worldPt.y);
@@ -137,20 +192,20 @@
       state.handlers.onClickPerson?.(person.id);
       return;
     }
+    const self = me();
     const desk = hitDesk(worldPt.x, worldPt.y);
     if (desk) {
-      const self = me();
-      if (self) {
-        self.sittingDeskId = desk.id;
-        self.x = desk.seatX;
-        self.y = desk.seatY;
-        self.moving = false;
+      if (occupiedDeskIds().has(desk.id)) {
+        state.handlers.onSit?.(desk.id);
+        return;
       }
-      state.handlers.onSit?.(desk.id);
-      state.target = null;
+      sitAt(desk);
       return;
     }
-    if (self?.sittingDeskId) state.handlers.onStand?.();
+    if (self?.sittingDeskId) {
+      self.sittingDeskId = null;
+      state.handlers.onStand?.();
+    }
     state.target = worldPt;
   }
 
@@ -431,8 +486,53 @@
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+    drawDeskOccupancy(ctx);
     ctx.restore();
     state.layer.style.transform = `translate(${-state.camX}px, ${-state.camY}px)`;
+    drawMinimap();
+  }
+
+  function drawDeskOccupancy(ctx) {
+    if (!state.world) return;
+    const taken = occupiedDeskIds();
+    const self = me();
+    for (const d of state.world.desks) {
+      const mine = Number(self?.sittingDeskId) === d.id;
+      if (!taken.has(d.id) && !mine) continue;
+      ctx.fillStyle = mine ? "rgba(245,197,24,.28)" : "rgba(233,30,140,.32)";
+      ctx.fillRect(d.x, d.y, d.w, d.h);
+      ctx.fillStyle = mine ? "#F5C518" : "#fff6e0";
+      ctx.font = "800 13px Outfit, sans-serif";
+      ctx.fillText(mine ? "Jij" : "Bezet", d.x + 16, d.y + 34);
+    }
+  }
+
+  function drawMinimap() {
+    const canvas = state.minimap;
+    const w = state.world;
+    const self = me();
+    if (!canvas || !w || !self) return;
+    const ctx = canvas.getContext("2d");
+    const mw = canvas.width;
+    const mh = canvas.height;
+    const sx = mw / w.width;
+    const sy = mh / w.height;
+    ctx.fillStyle = "#1a1210";
+    ctx.fillRect(0, 0, mw, mh);
+    ctx.fillStyle = "#3b241c";
+    for (const z of w.zones) {
+      ctx.fillRect(z.x * sx, z.y * sy, z.w * sx, z.h * sy);
+    }
+    ctx.fillStyle = "#6b4428";
+    for (const d of w.desks) ctx.fillRect(d.x * sx, d.y * sy, d.w * sx, d.h * sy);
+    ctx.strokeStyle = "rgba(245,197,24,.7)";
+    ctx.strokeRect(state.camX * sx, state.camY * sy, state.viewW * sx, state.viewH * sy);
+    for (const p of state.players.values()) {
+      ctx.fillStyle = p.id === state.meId ? "#F5C518" : "#E91E8C";
+      ctx.beginPath();
+      ctx.arc(p.x * sx, p.y * sy, p.id === state.meId ? 3.5 : 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   function ensureNode(p) {
@@ -482,6 +582,14 @@
       } else {
         bubble.className = "bubble";
       }
+      const self = me();
+      if (self && p.id !== self.id) {
+        const dist = Math.hypot((p.ix ?? p.x) - self.x, (p.iy ?? p.y) - self.y);
+        el.style.opacity = dist > state.proximity ? "0.42" : "1";
+        if (dist > state.proximity) bubble.className = "bubble";
+      } else {
+        el.style.opacity = "1";
+      }
     }
   }
 
@@ -494,6 +602,8 @@
     applyMoves,
     me,
     setTouch,
+    goToDesk,
+    sitNearest,
     STATUS_COLOR,
   };
 })();

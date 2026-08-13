@@ -2,6 +2,9 @@ export const WORLD_W = 2400;
 export const WORLD_H = 1680;
 export const PLAYER_R = 28;
 export const MAX_SPEED = 420;
+export const PROXIMITY = 420;
+export const PAUSE_MS = 10 * 60 * 1000;
+export const DATE_WAIT_FALLBACK_MS = 45_000;
 
 export const ICEBREAKERS = [
   "Wat studeer je, en waar?",
@@ -115,6 +118,19 @@ export function deskById(world, id) {
   return world.desks.find((d) => d.id === Number(id)) || null;
 }
 
+export function nearestDesk(world, x, y) {
+  let best = null;
+  let bestD = Infinity;
+  for (const desk of world.desks) {
+    const d = Math.hypot(x - desk.seatX, y - desk.seatY);
+    if (d < bestD) {
+      best = desk;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
 export function publicWorld(world) {
   return {
     width: world.width,
@@ -123,5 +139,7 @@ export function publicWorld(world) {
     desks: world.desks,
     speedTables: world.speedTables,
     zones: world.zones,
+    proximity: PROXIMITY,
+    pauseMs: PAUSE_MS,
   };
 }
