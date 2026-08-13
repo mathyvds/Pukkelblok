@@ -113,7 +113,7 @@ function emitToSocket(userId: string, fn: (socketId: string) => void) {
 }
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, name: "Blokbar", festival: "Pukkelpop 2026", online: store.onlineCount(), max: MAX_ONLINE });
+  res.json({ ok: true, name: "Pukkelblok", festival: "Pukkelpop 2026", online: store.onlineCount(), max: MAX_ONLINE });
 });
 
 app.get("/api/desks", (_req, res) => {
@@ -523,5 +523,5 @@ async function attachFrontend() {
 await attachFrontend();
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Blokbar (PKP26) op http://localhost:${PORT} (${isProd ? "prod" : "dev"})`);
+  console.log(`Pukkelblok (PKP26) op http://localhost:${PORT} (${isProd ? "prod" : "dev"})`);
 });

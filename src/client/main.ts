@@ -353,7 +353,7 @@ function connectSocket() {
     ui.chatMsgs.innerHTML = "";
     payload.chat.forEach(addChatLine);
     renderOnline();
-    notify(`Welkom in de Blokbar, ${payload.you.firstName}. De tent staat — morgen begint PKP.`);
+    notify(`Welkom in Pukkelblok, ${payload.you.firstName}. De tent staat — morgen begint PKP.`);
     syncPauseClock(payload.you);
     syncStudyClock(payload.you);
     syncChatPlace();
