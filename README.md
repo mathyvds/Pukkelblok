@@ -1,4 +1,4 @@
-# Blokbar — Pukkelpop 2026
+# Pukkelblok — Pukkelpop 2026
 
 Virtuele tent van **Pukkelblok** op [Pukkelpop](https://www.pukkelpop.be/nl/) (PKP26, 20–23 augustus, Kiewit). Studenten blokken aan hun eigen bureau en stappen even deze wereld in om anderen te ontmoeten.
 

@@ -324,7 +324,7 @@ function connectSocket() {
     ui.chatMsgs.innerHTML = "";
     payload.chat.forEach(addChatLine);
     renderOnline();
-    notify(`Welkom in de Blokbar, ${payload.you.firstName}.`);
+    notify(`Welkom in Pukkelblok, ${payload.you.firstName}.`);
   });
 
   socket.on("presence", (p) => {

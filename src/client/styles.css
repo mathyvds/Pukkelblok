@@ -108,7 +108,7 @@ kbd {
 }
 .hero h1 {
   font-family: var(--font-display);
-  font-size: clamp(5rem, 16vw, 9rem);
+  font-size: clamp(3.4rem, 12vw, 7.2rem);
   line-height: 0.85;
   letter-spacing: 0.04em;
   margin: 0.4rem 0;
