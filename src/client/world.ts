@@ -1,5 +1,5 @@
 import type { PlayerMove, PublicPlayer, PublicWorld, Status } from "../shared/protocol";
-import { clampMove, solidsOf, type World } from "../shared/world";
+import { clampMove, inZone, solidsOf, type World } from "../shared/world";
 
 export type WorldPerson = PublicPlayer & {
   walkT: number;
@@ -43,11 +43,13 @@ const state = {
   viewW: 0,
   viewH: 0,
   target: null as { x: number; y: number } | null,
+  followId: null as string | null,
   lastSend: 0,
   lastTs: 0,
   lastPos: { x: 0, y: 0, moving: false },
   handlers: {} as WorldHandlers,
   mounted: false,
+  minimap: null as HTMLCanvasElement | null,
 };
 
 export function mount(opts: {
@@ -55,6 +57,7 @@ export function mount(opts: {
   viewport: HTMLElement;
   layer: HTMLElement;
   avatarsEl: HTMLElement;
+  minimap?: HTMLCanvasElement;
   handlers: WorldHandlers;
 }) {
   state.canvas = opts.canvas;
@@ -63,6 +66,13 @@ export function mount(opts: {
   state.layer = opts.layer;
   state.avatarsEl = opts.avatarsEl;
   state.handlers = opts.handlers;
+  if (opts.minimap) {
+    state.minimap = opts.minimap;
+    if (!opts.minimap.dataset.bound) {
+      opts.minimap.dataset.bound = "1";
+      opts.minimap.addEventListener("click", onMinimapClick);
+    }
+  }
   resize();
   if (!state.mounted) {
     window.addEventListener("resize", resize);
@@ -122,8 +132,66 @@ export function applyMoves(moves: PlayerMove[]) {
   }
 }
 
-export function me() {
+function me() {
   return (state.meId && state.players.get(state.meId)) || null;
+}
+
+export function walkTo(x: number, y: number) {
+  const self = me();
+  if (!self || self.inDate) return;
+  if (self.sittingDeskId) {
+    state.handlers.onStand?.();
+    self.sittingDeskId = null;
+  }
+  state.followId = null;
+  state.target = { x, y };
+}
+
+export function walkToPlayer(id: string) {
+  const self = me();
+  const other = state.players.get(id);
+  if (!self || !other || self.inDate) return;
+  if (self.sittingDeskId) {
+    state.handlers.onStand?.();
+    self.sittingDeskId = null;
+  }
+  state.followId = id;
+  retargetFollow();
+}
+
+function retargetFollow() {
+  const self = me();
+  const p = state.followId ? state.players.get(state.followId) : null;
+  if (!self || !p) {
+    state.followId = null;
+    return;
+  }
+  const px = p.ix ?? p.x;
+  const py = p.iy ?? p.y;
+  const dx = px - self.x;
+  const dy = py - self.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 72) {
+    state.followId = null;
+    state.target = null;
+    return;
+  }
+  state.target = { x: px - (dx / dist) * 62, y: py - (dy / dist) * 62 };
+}
+
+export function myPlaceHint() {
+  const self = me();
+  const w = state.world;
+  if (!self || !w) return "";
+  if (self.inDate) return "Je zit aan een speeddate-tafel";
+  if (self.status === "studeren") return `Stilte · jouw bureau ${self.homeDeskId}`;
+  if (self.talkCircleId) return "Lounge · praatcirkel — geen timer";
+  if (inZone(w, self.x, self.y, "coffee")) return "Koffiehoek · hier mag je praten";
+  if (inZone(w, self.x, self.y, "lounge")) return "Lounge · schuif aan bij een cirkel";
+  if (inZone(w, self.x, self.y, "speeddate")) return "Speeddate-hoek";
+  if (self.sittingDeskId) return `Je zit aan bureau ${self.sittingDeskId}`;
+  if (self.homeDeskId) return `Jouw bureau: ${self.homeDeskId}`;
+  return "";
 }
 
 export function setTouch(dir: TouchDir, down: boolean) {
@@ -159,21 +227,34 @@ function onKeyUp(e: KeyboardEvent) {
 }
 
 function onClick(e: MouseEvent) {
+  const self = me();
+  if (self?.inDate) return;
   const worldPt = screenToWorld(e.clientX, e.clientY);
   const person = hitPerson(worldPt.x, worldPt.y);
   if (person && person.id !== state.meId) {
     state.handlers.onClickPerson?.(person.id);
     return;
   }
-  const self = me();
   const desk = hitDesk(worldPt.x, worldPt.y);
   if (desk) {
     state.handlers.onSit?.(desk.id);
     state.target = null;
+    state.followId = null;
     return;
   }
   if (self?.sittingDeskId) state.handlers.onStand?.();
+  state.followId = null;
   state.target = worldPt;
+}
+
+function onMinimapClick(e: MouseEvent) {
+  const w = state.world;
+  const canvas = state.minimap;
+  if (!w || !canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * w.width;
+  const y = ((e.clientY - rect.top) / rect.height) * w.height;
+  walkTo(x, y);
 }
 
 function screenToWorld(clientX: number, clientY: number) {
@@ -230,28 +311,36 @@ function update(dt: number) {
   const self = me();
   const world = state.world;
   if (!self || !world) return;
+  if (state.followId) retargetFollow();
   const dir = wantedDir();
   let moving = false;
-  if (self.sittingDeskId && (dir.dx || dir.dy)) {
-    state.handlers.onStand?.();
-    self.sittingDeskId = null;
-  }
-  if (!self.sittingDeskId) {
-    if (dir.dx || dir.dy) {
-      const len = Math.hypot(dir.dx, dir.dy) || 1;
-      tryMove(self, (dir.dx / len) * SPEED * dt, (dir.dy / len) * SPEED * dt);
-      self.facing = dir.dx < 0 ? -1 : dir.dx > 0 ? 1 : self.facing;
-      moving = true;
-      state.target = null;
-    } else if (state.target) {
-      const tdx = state.target.x - self.x;
-      const tdy = state.target.y - self.y;
-      const dist = Math.hypot(tdx, tdy);
-      if (dist > 6) {
-        tryMove(self, (tdx / dist) * SPEED * dt, (tdy / dist) * SPEED * 0.9 * dt);
-        self.facing = tdx < 0 ? -1 : 1;
+  if (self.inDate) {
+    self.moving = false;
+    state.target = null;
+    state.followId = null;
+  } else {
+    if (self.sittingDeskId && (dir.dx || dir.dy)) {
+      state.handlers.onStand?.();
+      self.sittingDeskId = null;
+    }
+    if (!self.sittingDeskId) {
+      if (dir.dx || dir.dy) {
+        const len = Math.hypot(dir.dx, dir.dy) || 1;
+        tryMove(self, (dir.dx / len) * SPEED * dt, (dir.dy / len) * SPEED * dt);
+        self.facing = dir.dx < 0 ? -1 : dir.dx > 0 ? 1 : self.facing;
         moving = true;
-      } else state.target = null;
+        state.target = null;
+        state.followId = null;
+      } else if (state.target) {
+        const tdx = state.target.x - self.x;
+        const tdy = state.target.y - self.y;
+        const dist = Math.hypot(tdx, tdy);
+        if (dist > 6) {
+          tryMove(self, (tdx / dist) * SPEED * dt, (tdy / dist) * SPEED * 0.9 * dt);
+          self.facing = tdx < 0 ? -1 : 1;
+          moving = true;
+        } else state.target = null;
+      }
     }
   }
   self.moving = moving;
@@ -324,19 +413,44 @@ function drawStatic(ctx: CanvasRenderingContext2D, w: PublicWorld) {
 
   const zone = (id: string) => w.zones.find((z) => z.id === id);
   const bar = zone("bar");
+  const coffee = zone("coffee");
   const stage = zone("stage");
   const info = zone("info");
   const lounge = zone("lounge");
+  const study = zone("study");
   const speed = zone("speeddate");
 
-  if (bar) {
-    roundRect(ctx, bar.x + 10, bar.y + 10, bar.w - 20, bar.h - 20, 16, "#111");
+  if (study) {
+    ctx.fillStyle = "rgba(28, 48, 84, 0.28)";
+    ctx.fillRect(study.x, study.y, study.w, study.h);
+    ctx.fillStyle = "#93c5fd";
+    ctx.font = "800 20px Geist, sans-serif";
+    ctx.fillText("Stilte  ·  blokzone", study.x + 24, study.y + 32);
+  }
+
+  if (coffee) {
+    roundRect(ctx, coffee.x, coffee.y, coffee.w, coffee.h, 22, "#1c1408");
+    ctx.fillStyle = "rgba(255, 180, 40, 0.16)";
+    ctx.fillRect(coffee.x + 12, coffee.y + 12, coffee.w - 24, coffee.h - 24);
     ctx.fillStyle = "#FFE600";
-    ctx.font = "800 28px Geist, sans-serif";
-    ctx.fillText("Koffie & fris", bar.x + 40, bar.y + 58);
-    ctx.fillStyle = "#f5f5f5";
-    ctx.font = "500 16px Geist, sans-serif";
-    ctx.fillText("Even rechtstaan? Haal een kop en kom praten.", bar.x + 40, bar.y + 88);
+    ctx.font = "800 26px Geist, sans-serif";
+    ctx.fillText("Koffiehoek", coffee.x + 28, coffee.y + 52);
+    ctx.fillStyle = "#f5e6b8";
+    ctx.font = "500 15px Geist, sans-serif";
+    ctx.fillText("Hier mag je praten. Haal een kop en schuif aan.", coffee.x + 28, coffee.y + 82);
+    ctx.fillStyle = "#2a2010";
+    for (let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      ctx.ellipse(coffee.x + 90 + i * 130, coffee.y + coffee.h - 36, 28, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  if (bar) {
+    roundRect(ctx, bar.x + 10, bar.y + 8, bar.w - 20, bar.h - 10, 12, "#111");
+    ctx.fillStyle = "#FFE600";
+    ctx.font = "800 22px Geist, sans-serif";
+    ctx.fillText("Koffie & fris", bar.x + 40, bar.y + 42);
   }
 
   if (stage) {
@@ -357,21 +471,17 @@ function drawStatic(ctx: CanvasRenderingContext2D, w: PublicWorld) {
     ctx.fillText("Speeddate 16:30", info.x + 40, info.y + 58);
     ctx.fillStyle = "#ddd";
     ctx.font = "500 15px Geist, sans-serif";
-    ctx.fillText("Drie minuten. Eén ijsbreker. Daarna verder chatten.", info.x + 40, info.y + 88);
+    ctx.fillText("Aan een tafel in de tent. Lounge is om vrij aan te schuiven.", info.x + 40, info.y + 88);
   }
 
   if (lounge) {
-    roundRect(ctx, lounge.x, lounge.y, lounge.w, lounge.h, 20, "#111");
+    roundRect(ctx, lounge.x, lounge.y, lounge.w, lounge.h, 20, "#161018");
     ctx.fillStyle = "#FFE600";
-    ctx.font = "800 20px Geist, sans-serif";
-    ctx.fillText("Lounge", lounge.x + 22, lounge.y + 40);
-    ctx.fillStyle = "#2a2a2a";
-    const couches = Math.max(6, Math.floor((lounge.h - 80) / 150));
-    for (let i = 0; i < couches; i++) {
-      ctx.beginPath();
-      ctx.ellipse(lounge.x + lounge.w / 2, lounge.y + 120 + i * 150, 70, 36, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.font = "800 18px Geist, sans-serif";
+    ctx.fillText("Lounge", lounge.x + 22, lounge.y + 36);
+    ctx.fillStyle = "#c8c8c8";
+    ctx.font = "500 13px Geist, sans-serif";
+    ctx.fillText("Schuif aan. Geen timer.", lounge.x + 22, lounge.y + 56);
   }
 
   for (const d of w.desks) {
@@ -396,6 +506,11 @@ function drawStatic(ctx: CanvasRenderingContext2D, w: PublicWorld) {
     ctx.fillStyle = "#fff";
     ctx.font = "700 16px Geist, sans-serif";
     ctx.fillText(t.label, t.x + 16, t.y + 54);
+    ctx.fillStyle = "#111";
+    ctx.beginPath();
+    ctx.ellipse(t.seatAx, t.seatAy + 6, 18, 9, 0, 0, Math.PI * 2);
+    ctx.ellipse(t.seatBx, t.seatBy + 6, 18, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   ctx.strokeStyle = "rgba(255,230,0,.35)";
@@ -436,8 +551,66 @@ function draw() {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+  for (const circle of w.talkCircles) {
+    const n = [...state.players.values()].filter((p) => p.talkCircleId === circle.id).length;
+    ctx.beginPath();
+    ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
+    ctx.fillStyle = n ? "rgba(233, 30, 140, 0.14)" : "rgba(255, 230, 0, 0.06)";
+    ctx.fill();
+    ctx.setLineDash([10, 8]);
+    ctx.strokeStyle = n ? "rgba(255, 230, 0, 0.7)" : "rgba(255, 230, 0, 0.28)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#ffe600";
+    ctx.font = "700 14px Geist, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(n ? `Cirkel  ${n}/${circle.max}` : "Schuif aan", circle.x, circle.y - 8);
+    ctx.textAlign = "left";
+  }
   ctx.restore();
   state.layer.style.transform = `translate(${-state.camX}px, ${-state.camY}px)`;
+  paintMinimap();
+}
+
+function paintMinimap() {
+  const canvas = state.minimap;
+  const w = state.world;
+  if (!canvas || !w) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  const sx = cw / w.width;
+  const sy = ch / w.height;
+  ctx.fillStyle = "#070707";
+  ctx.fillRect(0, 0, cw, ch);
+  const fillZone = (id: string, color: string) => {
+    const z = w.zones.find((zone) => zone.id === id);
+    if (!z) return;
+    ctx.fillStyle = color;
+    ctx.fillRect(z.x * sx, z.y * sy, z.w * sx, z.h * sy);
+  };
+  fillZone("study", "rgba(59,130,246,0.22)");
+  fillZone("coffee", "rgba(255,180,40,0.34)");
+  fillZone("lounge", "rgba(233,30,140,0.22)");
+  fillZone("speeddate", "rgba(255,230,0,0.16)");
+  ctx.strokeStyle = "rgba(255,230,0,0.35)";
+  ctx.lineWidth = 1;
+  for (const c of w.talkCircles) {
+    ctx.beginPath();
+    ctx.arc(c.x * sx, c.y * sy, Math.max(3, c.r * sx), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(255,255,255,0.4)";
+  ctx.strokeRect(state.camX * sx, state.camY * sy, state.viewW * sx, state.viewH * sy);
+  for (const p of state.players.values()) {
+    const mine = p.id === state.meId;
+    ctx.fillStyle = mine ? "#FFE600" : STATUS_COLOR[p.status] || "#fff";
+    ctx.beginPath();
+    ctx.arc((p.ix ?? p.x) * sx, (p.iy ?? p.y) * sy, mine ? 3.6 : 2.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function ensureNode(p: WorldPerson) {
@@ -452,6 +625,7 @@ function ensureNode(p: WorldPerson) {
       <div class="torso"></div>
       <img class="face" alt=""/>
       <span class="st-dot"></span>
+      <span class="shh" hidden>stil</span>
     </div>
     <div class="nametag"></div>`;
   el.addEventListener("click", (ev) => {
@@ -470,29 +644,35 @@ function syncDom() {
     const y = p.iy ?? p.y;
     el.style.transform = `translate(${x}px, ${y}px)`;
     el.style.zIndex = String(100 + Math.floor(y));
-    el.classList.toggle("walking", Boolean(p.moving) && !p.sittingDeskId);
-    el.classList.toggle("sitting", Boolean(p.sittingDeskId));
+    el.classList.toggle("walking", Boolean(p.moving) && !p.sittingDeskId && !p.inDate);
+    el.classList.toggle("sitting", Boolean(p.sittingDeskId) || Boolean(p.inDate));
     el.classList.toggle("face-left", p.facing === -1);
+    el.classList.toggle("silent", p.status === "studeren");
+    el.classList.toggle("in-circle", Boolean(p.talkCircleId));
     (el.querySelector(".torso") as HTMLElement).style.background = p.color || "#FFE600";
     const img = el.querySelector(".face") as HTMLImageElement;
     if (img.getAttribute("src") !== p.avatarUrl) img.src = p.avatarUrl;
-    el.querySelector(".nametag")!.textContent = p.firstName;
+    const silent = p.status === "studeren";
+    el.querySelector(".nametag")!.textContent = silent ? `${p.firstName} · stil` : p.firstName;
     (el.querySelector(".st-dot") as HTMLElement).style.background = STATUS_COLOR[p.status] || "#22c55e";
+    const shh = el.querySelector(".shh") as HTMLElement | null;
+    if (shh) shh.hidden = !silent;
     const bubble = el.querySelector(".bubble")!;
-    if (p.typing && p.draft) {
+    const self = me();
+    const hideTalk = silent || self?.status === "studeren";
+    if (!hideTalk && p.typing && p.draft) {
       bubble.textContent = p.draft;
       bubble.className = "bubble on typing";
-    } else if (p.bubble) {
+    } else if (!hideTalk && p.bubble) {
       bubble.textContent = p.bubble;
       bubble.className = "bubble on";
     } else {
       bubble.className = "bubble";
     }
-    const self = me();
     if (self && p.id !== self.id) {
       const dist = Math.hypot((p.ix ?? p.x) - self.x, (p.iy ?? p.y) - self.y);
       const range = state.world?.proximity || 420;
-      el.style.opacity = dist > range ? "0.42" : "1";
+      el.style.opacity = silent ? "0.78" : dist > range ? "0.42" : "1";
       if (dist > range) bubble.className = "bubble";
     } else {
       el.style.opacity = "1";

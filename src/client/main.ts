@@ -265,13 +265,16 @@ function enterTent(user: PublicPlayer) {
   $("me-name").textContent = user.firstName;
   ($("me-face") as HTMLImageElement).src = user.avatarUrl;
   ($("status-select") as HTMLSelectElement).value = user.status || "studeren";
-  ui.deskHint.textContent = user.homeDeskId ? `Jouw bureau: ${user.homeDeskId}` : "";
+  ui.deskHint.textContent = user.homeDeskId ? `Stilte · jouw bureau ${user.homeDeskId}` : "";
   syncPauseClock(user);
+  syncStudyClock(user);
+  syncChatPlace();
   world.mount({
     canvas: $("world") as HTMLCanvasElement,
     viewport: $("viewport"),
     layer: $("world-dom"),
     avatarsEl: $("avatars"),
+    minimap: $("minimap") as HTMLCanvasElement,
     handlers: {
       onMove: (pos) => state.socket?.emit("move", pos),
       onSit: (deskId) => {
@@ -281,7 +284,12 @@ function enterTent(user: PublicPlayer) {
         state.socket?.emit("stand");
         const select = $("status-select") as HTMLSelectElement;
         if (select.value === "studeren") select.value = "pauze";
-        ui.deskHint.textContent = state.me?.homeDeskId ? `Jouw bureau: ${state.me.homeDeskId}` : "";
+        ui.deskHint.textContent = world.myPlaceHint();
+        if (state.me) {
+          state.me = { ...state.me, status: select.value as Status };
+          syncStudyClock(state.me);
+          syncChatPlace();
+        }
       },
       onClickPerson: openProfile,
     },
@@ -325,6 +333,9 @@ function connectSocket() {
     payload.chat.forEach(addChatLine);
     renderOnline();
     notify(`Welkom in de Blokbar, ${payload.you.firstName}.`);
+    syncPauseClock(payload.you);
+    syncStudyClock(payload.you);
+    syncChatPlace();
   });
 
   socket.on("presence", (p) => {
@@ -352,10 +363,11 @@ function connectSocket() {
     world.upsert(merged);
     if (p.id === state.me?.id) {
       state.me = merged;
-        if (merged.sittingDeskId) ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
-        else if (merged.homeDeskId) ui.deskHint.textContent = `Jouw bureau: ${merged.homeDeskId}`;
-        ($("status-select") as HTMLSelectElement).value = merged.status;
-        syncPauseClock(merged);
+      ui.deskHint.textContent = world.myPlaceHint();
+      ($("status-select") as HTMLSelectElement).value = merged.status;
+      syncPauseClock(merged);
+      syncStudyClock(merged);
+      syncChatPlace();
     }
     renderOnline();
   });
@@ -365,8 +377,7 @@ function connectSocket() {
     world.upsert(merged);
     if (p.id === state.me?.id) {
       state.me = merged;
-      if (merged.sittingDeskId) ui.deskHint.textContent = `Je zit aan bureau ${merged.sittingDeskId}`;
-      else if (merged.homeDeskId) ui.deskHint.textContent = `Jouw bureau: ${merged.homeDeskId}`;
+      if (merged.homeDeskId) ui.deskHint.textContent = world.myPlaceHint();
     }
   });
   socket.on("players:moves", (moves) => world.applyMoves(moves));
@@ -394,7 +405,11 @@ function connectSocket() {
     notify(n.text);
     if (n.type === "pause-end") {
       ($("status-select") as HTMLSelectElement).value = "studeren";
-      syncPauseClock({ ...state.me!, status: "studeren", pauseUntil: 0 });
+      if (state.me) syncPauseClock({ ...state.me, status: "studeren", pauseUntil: 0 });
+    }
+    if (n.type === "study-end") {
+      ($("status-select") as HTMLSelectElement).value = "pauze";
+      if (state.me) syncStudyClock({ ...state.me, status: "pauze", studyUntil: 0 });
     }
   });
   socket.on("announce", (a) => showAnnounce(a.text));
@@ -410,22 +425,19 @@ function connectSocket() {
     $("date-leave").hidden = !q.queued;
   });
   socket.on("speeddate:matched", (payload) => {
-    openDm(payload.partner.id);
-    $("date-ice").hidden = false;
-    $("date-ice").textContent = `IJsbreker: ${payload.ice}`;
-    $("date-timer").hidden = false;
-    $("modal-date").classList.add("open");
-    $("date-copy").textContent = `Je date met ${fullName(payload.partner)}.`;
-    $("date-join").hidden = true;
-    $("date-leave").hidden = true;
+    $("modal-date").classList.remove("open");
+    $("date-hud").hidden = false;
+    $("date-hud-title").textContent = `${payload.tableLabel} · ${payload.partner.firstName}`;
+    $("date-hud-ice").textContent = payload.ice;
     tickDate(payload.endsAt);
-    notify(`Speeddate met ${payload.partner.firstName}!`);
+    notify(`Speeddate aan ${payload.tableLabel} met ${payload.partner.firstName}.`);
+    syncChatPlace();
   });
   socket.on("speeddate:ended", (payload) => {
     const reasons: Record<string, string> = {
-      time: "De drie minuten zijn om. Je mag verder chatten via berichten.",
+      time: "De drie minuten zijn om. Je mag aan tafel verder praten.",
       disconnect: "Je date is even weg. Je mag verder chatten via berichten.",
-      kick: "Je date is de tent uit. Je mag verder chatten via berichten.",
+      kick: "Je date is de tent uit.",
       leave: "De speeddate is gestopt.",
     };
     $("date-copy").textContent = reasons[payload.reason] || reasons.time;
@@ -433,7 +445,10 @@ function connectSocket() {
     $("date-ice").hidden = true;
     $("date-join").hidden = false;
     $("date-leave").hidden = true;
+    $("date-hud").hidden = true;
     clearInterval(state.dateTimer);
+    notify(reasons[payload.reason] || reasons.time);
+    syncChatPlace();
   });
   socket.on("connect_error", () => {
     notify("Sessie verlopen. Maak opnieuw een gastaccount.");
@@ -442,12 +457,18 @@ function connectSocket() {
   });
 }
 
-function addChatLine(msg: { from: string; firstName: string; text: string; at: number; scope?: "near" | "tent" }) {
+function addChatLine(msg: { from: string; firstName: string; text: string; at: number; scope?: string }) {
   const mine = msg.from === state.me?.id;
   const el = document.createElement("div");
   el.className = "chat-msg" + (mine ? " me" : "");
   const time = new Date(msg.at).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" });
-  const scope = msg.scope === "tent" ? `<span class="msg-scope">hele tent</span>` : "";
+  const scopeLabels: Record<string, string> = {
+    tent: "hele tent",
+    circle: "cirkel",
+    coffee: "koffiehoek",
+    date: "tafel",
+  };
+  const scope = msg.scope && scopeLabels[msg.scope] ? `<span class="msg-scope">${scopeLabels[msg.scope]}</span>` : "";
   el.innerHTML = `<div class="msg-head"><span class="msg-name">${esc(msg.firstName)}</span>${scope}<span class="msg-time">${time}</span></div><div class="msg-body">${esc(msg.text)}</div>`;
   ui.chatMsgs.appendChild(el);
   ui.chatMsgs.scrollTop = ui.chatMsgs.scrollHeight;
@@ -461,7 +482,7 @@ function renderOnline() {
       return `<button class="online-user" data-id="${p.id}">
         <img src="${p.avatarUrl}" alt=""/>
         <span class="u-info"><span class="u-name">${esc(fullName(p))}${you}</span>
-          <span class="u-stat">${esc(statusLabel(p))} · bureau ${p.homeDeskId}</span></span>
+          <span class="u-stat">${esc(statusLabel(p))} · bureau ${p.homeDeskId}${p.talkCircleId ? " · cirkel" : ""}${p.inDate ? " · tafel" : ""}</span></span>
       </button>`;
     })
     .join("");
@@ -484,6 +505,11 @@ function openProfile(id: string) {
     ? `Zit aan bureau ${p.sittingDeskId}`
     : `Bureau ${p.homeDeskId} · loopt rond`;
   $("prof-school").textContent = `${p.age} jaar · ${p.school} · ${p.program}`;
+  $("prof-walk").onclick = () => {
+    $("modal-profile").classList.remove("open");
+    world.walkToPlayer(p.id);
+    notify(`Je loopt naar ${p.firstName}.`);
+  };
   $("prof-dm").onclick = () => {
     $("modal-profile").classList.remove("open");
     openDm(p.id);
@@ -562,6 +588,7 @@ $("chat-shout").addEventListener("click", () => {
 });
 
 ui.chatIn.addEventListener("input", () => {
+  if (state.me?.status === "studeren") return;
   const now = Date.now();
   if (now - state.lastTyping < 120) return;
   state.lastTyping = now;
@@ -592,10 +619,19 @@ $("dm-back").addEventListener("click", () => {
 
 $("status-select").addEventListener("change", () => {
   const status = ($("status-select") as HTMLSelectElement).value as Status;
-  state.socket?.emit("status", { status });
+  state.socket?.emit("status", { status, studyMinutes: status === "studeren" ? 50 : undefined });
   if (status === "studeren" && state.me?.homeDeskId) {
-    ui.deskHint.textContent = `Je zit aan bureau ${state.me.homeDeskId} (studeermodus)`;
+    ui.deskHint.textContent = `Stilte · jouw bureau ${state.me.homeDeskId}`;
   }
+  syncChatPlace();
+});
+
+document.querySelectorAll("#study-mins button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const minutes = Number((btn as HTMLElement).dataset.mins) === 25 ? 25 : 50;
+    ($("status-select") as HTMLSelectElement).value = "studeren";
+    state.socket?.emit("status", { status: "studeren", studyMinutes: minutes });
+  });
 });
 
 $("btn-speeddate").addEventListener("click", () => $("modal-date").classList.add("open"));
@@ -606,6 +642,7 @@ $("date-join").addEventListener("click", () =>
   })
 );
 $("date-leave").addEventListener("click", () => state.socket?.emit("speeddate:leave"));
+$("date-hud-leave").addEventListener("click", () => state.socket?.emit("speeddate:leave"));
 $("profile-close").addEventListener("click", () => $("modal-profile").classList.remove("open"));
 
 function tickDate(endsAt: number) {
@@ -615,12 +652,22 @@ function tickDate(endsAt: number) {
     const m = Math.floor(left / 60000);
     const s = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
     $("date-timer").textContent = `${m}:${s}`;
+    $("date-hud-timer").textContent = `${m}:${s}`;
   };
   tick();
   state.dateTimer = setInterval(tick, 250);
 }
 
 let pauseClock: ReturnType<typeof setInterval> | 0 = 0;
+let studyClock: ReturnType<typeof setInterval> | 0 = 0;
+
+function formatClock(until: number) {
+  const left = Math.max(0, until - Date.now());
+  const m = Math.floor(left / 60000);
+  const s = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
+  return { left, label: `${m}:${s}` };
+}
+
 function syncPauseClock(user: PublicPlayer) {
   clearInterval(pauseClock);
   const el = $("pause-timer");
@@ -630,10 +677,8 @@ function syncPauseClock(user: PublicPlayer) {
   }
   el.hidden = false;
   const tick = () => {
-    const left = Math.max(0, user.pauseUntil - Date.now());
-    const m = Math.floor(left / 60000);
-    const s = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
-    el.textContent = `Pauze ${m}:${s}`;
+    const { left, label } = formatClock(user.pauseUntil);
+    el.textContent = `Pauze ${label}`;
     if (left <= 0) {
       clearInterval(pauseClock);
       el.hidden = true;
@@ -641,6 +686,46 @@ function syncPauseClock(user: PublicPlayer) {
   };
   tick();
   pauseClock = setInterval(tick, 250);
+}
+
+function syncStudyClock(user: PublicPlayer) {
+  clearInterval(studyClock);
+  const el = $("study-timer");
+  const mins = $("study-mins");
+  const studying = user.status === "studeren";
+  mins.hidden = !studying;
+  if (!studying || !user.studyUntil) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const tick = () => {
+    const { left, label } = formatClock(user.studyUntil);
+    el.textContent = `Blok ${label}`;
+    if (left <= 0) {
+      clearInterval(studyClock);
+      el.hidden = true;
+    }
+  };
+  tick();
+  studyClock = setInterval(tick, 250);
+}
+
+function syncChatPlace() {
+  const me = state.me;
+  const silent = me?.status === "studeren";
+  ui.chatIn.disabled = Boolean(silent);
+  $("chat-shout").toggleAttribute("disabled", Boolean(silent));
+  if (silent) {
+    ui.chatIn.placeholder = "Stille modus — kies Pauze of Kennismaken om te praten";
+  } else if (me?.inDate) {
+    ui.chatIn.placeholder = "Zeg iets aan je tafel…";
+  } else if (me?.talkCircleId) {
+    ui.chatIn.placeholder = "Zeg iets in deze cirkel…";
+  } else {
+    ui.chatIn.placeholder = "Zeg iets tegen wie in de buurt is…";
+  }
+  if (me) ui.deskHint.textContent = world.myPlaceHint();
 }
 
 function showAnnounce(text: string) {
@@ -658,3 +743,7 @@ $("btn-logout").addEventListener("click", async () => {
 });
 
 restore();
+
+setInterval(() => {
+  if (screens.tent.classList.contains("active") && state.me) syncChatPlace();
+}, 800);
