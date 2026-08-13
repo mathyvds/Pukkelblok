@@ -103,13 +103,6 @@ function statusLabel(p: PublicPlayer) {
   const base = map[p.status] || "In de tent";
   return p.statusText ? `${base} · ${p.statusText}` : base;
 }
-    kennismaken: "Klaar om kennis te maken",
-    studeren: "Aan het studeren",
-    pauze: "Pauze",
-  };
-  const base = map[p.status] || "In de tent";
-  return p.statusText ? `${base} · ${p.statusText}` : base;
-}
 
 function esc(text: string) {
   return String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
