@@ -35,9 +35,12 @@ const ui = {
     schoolOtherWrap: $("school-other-wrap"),
     program: $("program") as HTMLInputElement,
     deskId: $("desk-id") as HTMLInputElement,
+    deskNumber: $("desk-number") as HTMLInputElement,
+    deskStatus: $("desk-status"),
     deskGrid: $("desk-grid"),
     preview: $("avatar-preview") as HTMLImageElement,
   error: $("join-error"),
+  error1: $("join-error-1"),
   file: $("avatar-file") as HTMLInputElement,
   cam: $("cam") as HTMLVideoElement,
   camActions: $("cam-actions"),
@@ -66,6 +69,9 @@ const state = {
   dateTimer: 0 as number | ReturnType<typeof setInterval>,
   camStream: null as MediaStream | null,
   lastTyping: 0,
+  joinStep: 1,
+  takenDesks: new Set<number>(),
+  coachStep: 0,
 };
 
 const ambience = createAmbience();
@@ -179,7 +185,9 @@ $("btn-snap").addEventListener("click", () => {
 
 $("btn-enter").addEventListener("click", () => {
   show("join");
+  setJoinStep(1);
   void loadDesks();
+  ui.first.focus();
 });
 $("school").addEventListener("change", () => {
   const other = ui.school.value === "Andere";
@@ -191,36 +199,126 @@ async function loadDesks() {
   try {
     const res = await fetch("/api/desks");
     const data = (await res.json()) as { desks: { id: number; taken: boolean }[] };
-    const taken = new Set(data.desks.filter((d) => d.taken).map((d) => d.id));
+    state.takenDesks = new Set(data.desks.filter((d) => d.taken).map((d) => d.id));
     ui.deskGrid.innerHTML = "";
     for (let i = 1; i <= DESK_COUNT; i++) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.textContent = String(i);
-      btn.disabled = taken.has(i);
-      btn.title = taken.has(i) ? "Bezet" : `Bureau ${i}`;
+      btn.disabled = state.takenDesks.has(i);
+      btn.title = state.takenDesks.has(i) ? "Bezet" : `Bureau ${i}`;
       btn.addEventListener("click", () => pickDesk(i));
       ui.deskGrid.appendChild(btn);
     }
+    refreshDeskStatus();
   } catch {
-    ui.error.textContent = "Kon de bureaus niet laden. Probeer opnieuw.";
+    ui.error1.textContent = "Kon de bureaus niet laden. Probeer opnieuw.";
   }
 }
 
 function pickDesk(id: number) {
   ui.deskId.value = String(id);
+  ui.deskNumber.value = String(id);
   [...ui.deskGrid.children].forEach((b) => b.classList.toggle("sel", b.textContent === String(id)));
+  refreshDeskStatus();
+  $("btn-join").textContent = `Zit aan bureau ${id}`;
 }
+
+function refreshDeskStatus() {
+  const n = Number(ui.deskNumber.value);
+  if (!ui.deskNumber.value) {
+    ui.deskId.value = "";
+    ui.deskStatus.textContent = "Bureau 1–100";
+    ui.deskStatus.className = "desk-status";
+    $("btn-join").textContent = "Zit aan je bureau";
+    return;
+  }
+  if (!Number.isInteger(n) || n < 1 || n > DESK_COUNT) {
+    ui.deskId.value = "";
+    ui.deskStatus.textContent = `Kies een nummer van 1 tot ${DESK_COUNT}.`;
+    ui.deskStatus.className = "desk-status bad";
+    return;
+  }
+  if (state.takenDesks.has(n)) {
+    ui.deskId.value = "";
+    ui.deskStatus.textContent = `Bureau ${n} is bezet. Kies een ander nummer.`;
+    ui.deskStatus.className = "desk-status bad";
+    [...ui.deskGrid.children].forEach((b) => b.classList.remove("sel"));
+    return;
+  }
+  ui.deskId.value = String(n);
+  ui.deskStatus.textContent = `Bureau ${n} is vrij — je start daar in stille modus.`;
+  ui.deskStatus.className = "desk-status ok";
+  [...ui.deskGrid.children].forEach((b) => b.classList.toggle("sel", b.textContent === String(n)));
+  $("btn-join").textContent = `Zit aan bureau ${n}`;
+}
+
+ui.deskNumber.addEventListener("input", refreshDeskStatus);
+
+function setJoinStep(step: 1 | 2) {
+  state.joinStep = step;
+  document.querySelectorAll(".join-step").forEach((el) => {
+    el.classList.toggle("on", Number((el as HTMLElement).dataset.step) === step);
+  });
+  document.querySelectorAll(".join-progress .jp").forEach((el) => {
+    el.classList.toggle("on", Number((el as HTMLElement).dataset.dot) <= step);
+  });
+  $("btn-back").textContent = step === 1 ? "← Terug" : "← Vorige";
+  ui.error.textContent = "";
+  ui.error1.textContent = "";
+  if (step === 2) ui.age.focus();
+  else ui.first.focus();
+}
+
+function joinStep1Ok() {
+  if (ui.first.value.trim().length < 2 || ui.last.value.trim().length < 2) {
+    ui.error1.textContent = "Vul je voor- en familienaam in.";
+    return false;
+  }
+  if (!Number(ui.deskId.value)) {
+    ui.error1.textContent = "Typ het nummer van je bureau in de tent.";
+    return false;
+  }
+  return true;
+}
+
+$("join-next").addEventListener("click", () => {
+  if (!joinStep1Ok()) return;
+  setJoinStep(2);
+});
+
 $("btn-back").addEventListener("click", () => {
+  if (state.joinStep === 2) {
+    stopCam();
+    setJoinStep(1);
+    return;
+  }
   stopCam();
   show("landing");
 });
 
 $("join-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (state.joinStep !== 2) {
+    if (joinStep1Ok()) setJoinStep(2);
+    return;
+  }
   const btn = $("btn-join") as HTMLButtonElement;
   if (!Number(ui.deskId.value)) {
-    ui.error.textContent = "Kies het nummer van je bureau in de tent.";
+    setJoinStep(1);
+    ui.error1.textContent = "Typ het nummer van je bureau in de tent.";
+    return;
+  }
+  if (!Number.isInteger(Number(ui.age.value)) || Number(ui.age.value) < 15) {
+    ui.error.textContent = "Vul je leeftijd in.";
+    return;
+  }
+  if (!ui.school.value || (ui.school.value === "Andere" && ui.schoolOther.value.trim().length < 2)) {
+    ui.error.textContent = "Kies of vul je school in.";
+    return;
+  }
+  if (ui.program.value.trim().length < 2) {
+    ui.error.textContent = "Vul je studierichting in.";
     return;
   }
   ui.error.textContent = "";
@@ -267,7 +365,7 @@ function enterTent(user: PublicPlayer) {
   show("tent");
   $("me-name").textContent = user.firstName;
   ($("me-face") as HTMLImageElement).src = user.avatarUrl;
-  ($("status-select") as HTMLSelectElement).value = user.status || "studeren";
+  setStatusUi(user.status || "studeren");
   ui.deskHint.textContent = world.myPlaceHint() || (user.homeDeskId ? `Stilte · jouw bureau ${user.homeDeskId}` : "");
   syncPauseClock(user);
   syncStudyClock(user);
@@ -289,7 +387,7 @@ function enterTent(user: PublicPlayer) {
       onStand: () => {
         state.socket?.emit("stand");
         const select = $("status-select") as HTMLSelectElement;
-        if (select.value === "studeren") select.value = "pauze";
+        if (select.value === "studeren") setStatusUi("pauze");
         ui.deskHint.textContent = world.myPlaceHint();
         if (state.me) {
           state.me = { ...state.me, status: select.value as Status, sittingDeskId: null, sittingSpotId: null };
@@ -334,19 +432,19 @@ function connectSocket() {
       world.upsert(p);
     }
     $("online-count").textContent = String(payload.online);
-    $("max-count").textContent = String(payload.max);
     ui.chatMsgs.innerHTML = "";
     payload.chat.forEach(addChatLine);
     renderOnline();
-    notify(`Welkom in de Blokbar, ${payload.you.firstName}. De tent staat — morgen begint PKP.`);
+    const desk = payload.you.homeDeskId;
+    notify(desk ? `Je zit aan bureau ${desk}. WASD of tik om te lopen.` : `Welkom, ${payload.you.firstName}.`);
     syncPauseClock(payload.you);
     syncStudyClock(payload.you);
     syncChatPlace();
+    openCoach(payload.you);
   });
 
   socket.on("presence", (p) => {
     $("online-count").textContent = String(p.online);
-    $("max-count").textContent = String(p.max);
   });
   socket.on("player:join", (p) => {
     const existed = state.players.has(p.id);
@@ -370,7 +468,7 @@ function connectSocket() {
     if (p.id === state.me?.id) {
       state.me = merged;
       ui.deskHint.textContent = world.myPlaceHint();
-      ($("status-select") as HTMLSelectElement).value = merged.status;
+      setStatusUi(merged.status);
       syncPauseClock(merged);
       syncStudyClock(merged);
       syncChatPlace();
@@ -410,11 +508,11 @@ function connectSocket() {
   socket.on("notice", (n) => {
     notify(n.text);
     if (n.type === "pause-end") {
-      ($("status-select") as HTMLSelectElement).value = "studeren";
+      setStatusUi("studeren");
       if (state.me) syncPauseClock({ ...state.me, status: "studeren", pauseUntil: 0 });
     }
     if (n.type === "study-end") {
-      ($("status-select") as HTMLSelectElement).value = "pauze";
+      setStatusUi("pauze");
       if (state.me) syncStudyClock({ ...state.me, status: "pauze", studyUntil: 0 });
     }
   });
@@ -459,6 +557,7 @@ function connectSocket() {
   socket.on("connect_error", () => {
     notify("Sessie verlopen. Maak opnieuw een gastaccount.");
     show("join");
+    setJoinStep(1);
     void loadDesks();
   });
 }
@@ -585,7 +684,7 @@ $("chat-form").addEventListener("submit", (e) => {
 $("chat-shout").addEventListener("click", () => {
   const text = ui.chatIn.value.trim();
   if (!text) {
-    notify("Typ eerst een bericht, daarna 📣 voor de hele tent.");
+    notify("Typ eerst een bericht, daarna ‘Tent’ voor iedereen.");
     return;
   }
   state.socket?.emit("shout", text);
@@ -623,8 +722,26 @@ $("dm-back").addEventListener("click", () => {
   ui.dmEmpty.hidden = false;
 });
 
+function setStatusUi(status: Status) {
+  const select = $("status-select") as HTMLSelectElement;
+  select.value = status;
+  document.querySelectorAll(".status-pill").forEach((btn) => {
+    btn.classList.toggle("on", (btn as HTMLElement).dataset.status === status);
+  });
+}
+
+document.querySelectorAll(".status-pill").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const status = (btn as HTMLElement).dataset.status as Status;
+    if (!status || ($("status-select") as HTMLSelectElement).value === status) return;
+    setStatusUi(status);
+    ($("status-select") as HTMLSelectElement).dispatchEvent(new Event("change"));
+  });
+});
+
 $("status-select").addEventListener("change", () => {
   const status = ($("status-select") as HTMLSelectElement).value as Status;
+  setStatusUi(status);
   state.socket?.emit("status", { status, studyMinutes: status === "studeren" ? 50 : undefined });
   if (status === "studeren" && state.me?.homeDeskId) {
     ui.deskHint.textContent = `Stilte · jouw bureau ${state.me.homeDeskId}`;
@@ -635,7 +752,7 @@ $("status-select").addEventListener("change", () => {
 document.querySelectorAll("#study-mins button").forEach((btn) => {
   btn.addEventListener("click", () => {
     const minutes = Number((btn as HTMLElement).dataset.mins) === 25 ? 25 : 50;
-    ($("status-select") as HTMLSelectElement).value = "studeren";
+    setStatusUi("studeren");
     state.socket?.emit("status", { status: "studeren", studyMinutes: minutes });
   });
 });
@@ -644,9 +761,10 @@ $("btn-speeddate").addEventListener("click", () => $("modal-date").classList.add
 $("btn-sound").addEventListener("click", async () => {
   await ambience.toggle();
   const btn = $("btn-sound");
-  btn.textContent = ambience.muted ? "Geluid uit" : "Geluid zacht";
+  btn.textContent = "Geluid";
   btn.setAttribute("aria-pressed", ambience.muted ? "false" : "true");
   btn.classList.toggle("on", !ambience.muted);
+  btn.title = ambience.muted ? "Zet zacht tentgeluid aan" : "Zet tentgeluid uit";
 });
 $("date-close").addEventListener("click", () => $("modal-date").classList.remove("open"));
 $("date-join").addEventListener("click", () =>
@@ -749,6 +867,61 @@ function showAnnounce(text: string) {
     banner.hidden = true;
   }, 8000);
 }
+
+const COACH_KEY = "blokbar-coach-v1";
+
+function coachCopy(desk: number | null) {
+  const bureau = desk ? `bureau ${desk}` : "je bureau";
+  return [
+    {
+      title: `Je zit aan ${bureau}`,
+      body: "Je start in stille blokmodus. Tik in de tent of gebruik WASD om even recht te staan.",
+    },
+    {
+      title: "Praat met wie dichtbij staat",
+      body: "Chat is voor je buur. ‘Tent’ roept de hele tent (1× per minuut). Tik op iemand voor een privébericht.",
+    },
+    {
+      title: "Drie standjes onderaan",
+      body: "Blokken = stilte aan je bureau. Pauze = 10 minuten rondlopen. Kennismaken = lounge, koffie en speeddate.",
+    },
+  ];
+}
+
+function renderCoach() {
+  const steps = coachCopy(state.me?.homeDeskId ?? null);
+  const step = steps[state.coachStep];
+  if (!step) {
+    $("coach").hidden = true;
+    try {
+      localStorage.setItem(COACH_KEY, "1");
+    } catch {
+      /* private mode */
+    }
+    return;
+  }
+  $("coach-kicker").textContent = `${state.coachStep + 1} / ${steps.length}`;
+  $("coach-title").textContent = step.title;
+  $("coach-body").textContent = step.body;
+  $("coach-next").textContent = state.coachStep === steps.length - 1 ? "Aan de slag" : "Oké";
+  $("coach").hidden = false;
+}
+
+function openCoach(user: PublicPlayer) {
+  try {
+    if (localStorage.getItem(COACH_KEY)) return;
+  } catch {
+    /* private mode: toon de coach eenmalig deze sessie */
+  }
+  state.coachStep = 0;
+  state.me = user;
+  renderCoach();
+}
+
+$("coach-next").addEventListener("click", () => {
+  state.coachStep += 1;
+  renderCoach();
+});
 
 $("btn-logout").addEventListener("click", async () => {
   await fetch("/api/logout", { method: "POST" });
