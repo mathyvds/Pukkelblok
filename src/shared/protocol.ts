@@ -12,18 +12,21 @@ export type School = (typeof SCHOOLS)[number];
 
 export const DESK_COUNT = 100;
 export const PROXIMITY = 420;
+export const WHISPER_PROXIMITY = 160;
 export const PAUSE_MS = 10 * 60 * 1000;
 export const CHAT_COOLDOWN_MS = 700;
 export const SHOUT_COOLDOWN_MS = 60_000;
 export const DATE_WAIT_FALLBACK_MS = 45_000;
 export const DATE_CONTINUE_MS = 30_000;
+export const CIRCLE_MAX = 4;
+export const STUDY_MINUTES = [25, 50] as const;
+export type StudyMinutes = (typeof STUDY_MINUTES)[number];
+export const DEFAULT_STUDY_MINUTES: StudyMinutes = 50;
 
 export const WAVES = ["👋", "☕", "📚", "💪", "💛"] as const;
 export type WaveEmoji = (typeof WAVES)[number];
 export const WAVE_COOLDOWN_MS = 2000;
 export const WAVE_MS = 2800;
-
-export const TALK_CIRCLE_CAP = 4;
 
 export const REPORT_REASONS = ["Lastigvallen", "Ongewenste berichten", "Anders"] as const;
 export type ReportReason = (typeof REPORT_REASONS)[number];
@@ -33,6 +36,9 @@ export type DaySlotId = (typeof DAY_SLOT_IDS)[number];
 
 export const HOST_MOMENTS = ["stand", "speeddate-open", "silence"] as const;
 export type HostMomentId = (typeof HOST_MOMENTS)[number];
+
+export const chatScopes = ["near", "tent", "circle", "coffee", "date"] as const;
+export type ChatScope = (typeof chatScopes)[number];
 
 export type PublicPlayer = {
   id: string;
@@ -45,8 +51,7 @@ export type PublicPlayer = {
   facing: 1 | -1;
   moving: boolean;
   sittingDeskId: number | null;
-  sittingTableId: string | null;
-  talkCircleId: string | null;
+  sittingSpotId: string | null;
   homeDeskId: number;
   age: number;
   school: string;
@@ -59,6 +64,9 @@ export type PublicPlayer = {
   bubble: string;
   waving: string;
   inDate: boolean;
+  talkCircleId: string | null;
+  dateTableId: string | null;
+  studyUntil: number;
 };
 
 export type ChatMessage = {
@@ -67,7 +75,7 @@ export type ChatMessage = {
   firstName: string;
   lastName: string;
   text: string;
-  scope: "near" | "tent" | "circle";
+  scope: ChatScope;
   at: number;
 };
 
@@ -89,7 +97,7 @@ export type MovePayload = {
 export type PlayerMove = MovePayload & {
   id: string;
   sittingDeskId: number | null;
-  sittingTableId: string | null;
+  sittingSpotId: string | null;
 };
 
 export type Desk = {
@@ -110,7 +118,20 @@ export type SpeedTable = {
   w: number;
   h: number;
   label: string;
-  seats: [{ x: number; y: number }, { x: number; y: number }];
+  seatAx: number;
+  seatAy: number;
+  seatBx: number;
+  seatBy: number;
+};
+
+export type TalkCircle = {
+  id: string;
+  x: number;
+  y: number;
+  r: number;
+  max: number;
+  label?: string;
+  school?: School;
 };
 
 export type Zone = {
@@ -122,19 +143,20 @@ export type Zone = {
   h: number;
 };
 
-export type TalkCircle = {
+export type SeatKind = "stool" | "lounge";
+
+export type Seat = {
   id: string;
-  label: string;
+  kind: SeatKind;
   x: number;
   y: number;
-  r: number;
-  cap: number;
+  w: number;
+  h: number;
+  seatX: number;
+  seatY: number;
 };
 
-export type SchoolCorner = {
-  id: "corner-pxl" | "corner-ucll" | "corner-uhasselt" | "corner-andere";
-  school: School;
-  label: string;
+export type WorldBlocker = {
   x: number;
   y: number;
   w: number;
@@ -173,14 +195,17 @@ export type PublicWorld = {
   spawn: { x: number; y: number };
   desks: Desk[];
   speedTables: SpeedTable[];
-  zones: Zone[];
   talkCircles: TalkCircle[];
-  schoolCorners: SchoolCorner[];
+  zones: Zone[];
+  seats: Seat[];
+  blockers: WorldBlocker[];
   daySlots: DaySlot[];
   board: InfoBoard;
   proximity: number;
   pauseMs: number;
 };
+
+export type IceSource = "profile" | "bar";
 
 export type HelloPayload = {
   you: PublicPlayer;
@@ -194,13 +219,12 @@ export type HelloPayload = {
   tableIces: { id: string; ice: string }[];
 };
 
-export type IceSource = "profile" | "bar";
-
 export type ClientToServerEvents = {
   move: (data: MovePayload) => void;
   sit: (deskId: number) => void;
+  "sit:spot": (spotId: string) => void;
   stand: () => void;
-  status: (data: { status: Status; statusText?: string }) => void;
+  status: (data: { status: Status; statusText?: string; studyMinutes?: number }) => void;
   typing: (data: { typing: boolean; draft: string }) => void;
   chat: (text: string) => void;
   shout: (text: string) => void;

@@ -1,16 +1,5 @@
-import type {
-  DaySlot,
-  DaySlotId,
-  Desk,
-  InfoBoard,
-  PublicWorld,
-  School,
-  SchoolCorner,
-  SpeedTable,
-  TalkCircle,
-  Zone,
-} from "./protocol";
-import { DESK_COUNT, PAUSE_MS, PROXIMITY, TALK_CIRCLE_CAP } from "./protocol";
+import type { DaySlot, DaySlotId, Desk, InfoBoard, PublicWorld, School, Seat, SpeedTable, TalkCircle, WorldBlocker, Zone } from "./protocol";
+import { CIRCLE_MAX, DESK_COUNT, PAUSE_MS, PROXIMITY } from "./protocol";
 
 export const WORLD_W = 3200;
 export const WORLD_H = 2480;
@@ -92,45 +81,103 @@ function makeSpeedTables(): SpeedTable[] {
       w,
       h,
       label: `Tafel ${i + 1}`,
-      seats: [
-        { x: x + 36, y: y + h + 28 },
-        { x: x + w - 36, y: y + h + 28 },
-      ],
+      seatAx: x + 36,
+      seatAy: y + h + 30,
+      seatBx: x + w - 36,
+      seatBy: y + h + 30,
     };
   });
 }
 
 function makeTalkCircles(): TalkCircle[] {
-  return [
-    { id: "bank-1", label: "Bank 1", x: 185, y: 1220, r: 110, cap: TALK_CIRCLE_CAP },
-    { id: "bank-2", label: "Bank 2", x: 185, y: 1480, r: 110, cap: TALK_CIRCLE_CAP },
-    { id: "bank-3", label: "Bank 3", x: 185, y: 1740, r: 110, cap: TALK_CIRCLE_CAP },
-    { id: "bank-4", label: "Bank 4", x: 185, y: 2000, r: 110, cap: TALK_CIRCLE_CAP },
+  const loungeX = 185;
+  const startY = 520;
+  const schools: { school: School; label: string }[] = [
+    { school: "PXL", label: "PXL" },
+    { school: "UCLL", label: "UCLL" },
+    { school: "Universiteit Hasselt", label: "UHasselt" },
+    { school: "Andere", label: "Andere" },
   ];
+  return Array.from({ length: 8 }, (_, i) => ({
+    id: `c-${i + 1}`,
+    x: loungeX,
+    y: startY + i * 220,
+    r: 92,
+    max: CIRCLE_MAX,
+    ...(schools[i] || {}),
+  }));
 }
 
-function makeSchoolCorners(): SchoolCorner[] {
-  const specs: { id: SchoolCorner["id"]; school: School; label: string; y: number }[] = [
-    { id: "corner-pxl", school: "PXL", label: "PXL", y: 400 },
-    { id: "corner-ucll", school: "UCLL", label: "UCLL", y: 580 },
-    { id: "corner-uhasselt", school: "Universiteit Hasselt", label: "UHasselt", y: 760 },
-    { id: "corner-andere", school: "Andere", label: "Andere", y: 940 },
+function makeSeats(circles: TalkCircle[]): Seat[] {
+  const seats: Seat[] = [];
+  for (let i = 0; i < 6; i++) {
+    const x = 130 + i * 108;
+    const y = 188;
+    seats.push({
+      id: `stool-${i + 1}`,
+      kind: "stool",
+      x,
+      y,
+      w: 46,
+      h: 40,
+      seatX: x + 23,
+      seatY: y + 52,
+    });
+  }
+  circles.forEach((c, i) => {
+    seats.push({
+      id: `lounge-${i + 1}a`,
+      kind: "lounge",
+      x: 58,
+      y: c.y - 38,
+      w: 72,
+      h: 34,
+      seatX: 128,
+      seatY: c.y - 16,
+    });
+    seats.push({
+      id: `lounge-${i + 1}b`,
+      kind: "lounge",
+      x: 58,
+      y: c.y + 6,
+      w: 72,
+      h: 34,
+      seatX: 128,
+      seatY: c.y + 24,
+    });
+  });
+  return seats;
+}
+
+function makeBlockers(): WorldBlocker[] {
+  return [
+    { x: 86, y: 86, w: 708, h: 64 },
+    { x: 860, y: 62, w: 1500, h: 48 },
+    { x: WORLD_W - 760, y: 86, w: 680, h: 148 },
+    { x: 92, y: 2268, w: 78, h: 54 },
+    { x: 186, y: 2284, w: 58, h: 42 },
+    { x: 2988, y: 2254, w: 86, h: 58 },
+    { x: 120, y: WORLD_H - 92, w: 240, h: 28 },
+    { x: WORLD_W - 420, y: WORLD_H - 96, w: 280, h: 28 },
   ];
-  return specs.map((s) => ({ ...s, x: 58, w: 254, h: 170 }));
 }
 
 export function solidsOf(
-  world: Pick<PublicWorld, "width" | "height" | "desks" | "speedTables" | "zones">
+  world: Pick<PublicWorld, "width" | "height" | "desks" | "speedTables" | "blockers">
 ): Box[] {
   return [
     { x: 0, y: 0, w: world.width, h: 70, wall: true },
     { x: 0, y: world.height - 40, w: world.width, h: 40, wall: true },
     { x: 0, y: 0, w: 40, h: world.height, wall: true },
     { x: world.width - 40, y: 0, w: 40, h: world.height, wall: true },
-    ...world.zones.filter((z) => z.id === "bar" || z.id === "stage" || z.id === "info"),
+    ...(world.blockers || []),
     ...world.desks.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h })),
     ...world.speedTables.map((t) => ({ x: t.x, y: t.y, w: t.w, h: t.h })),
   ];
+}
+
+export function seatById(world: Pick<PublicWorld, "seats">, id: unknown) {
+  return (world.seats || []).find((s) => s.id === String(id || "")) || null;
 }
 
 export function slotForHour(date = new Date()): DaySlotId {
@@ -168,25 +215,27 @@ export function createWorld(board: InfoBoard = defaultBoard()): World {
   const desks = makeDesks();
   const speedTables = makeSpeedTables();
   const talkCircles = makeTalkCircles();
-  const schoolCorners = makeSchoolCorners();
+  const seats = makeSeats(talkCircles);
+  const blockers = makeBlockers();
   const zones: Zone[] = [
-    { id: "bar", name: "Koffiebar", x: 80, y: 90, w: 720, h: 150 },
-    { id: "cafe", name: "Koffiebar", x: 80, y: 240, w: 720, h: 100 },
-    { id: "stage", name: "Club", x: 840, y: 90, w: 1540, h: 130 },
-    { id: "info", name: "Info", x: WORLD_W - 780, y: 90, w: 700, h: 150 },
+    { id: "bar", name: "Koffiebar", x: 80, y: 90, w: 720, h: 70 },
+    { id: "coffee", name: "Koffiehoek", x: 50, y: 155, w: 780, h: 185 },
+    { id: "stage", name: "Club", x: 840, y: 90, w: 1540, h: 160 },
+    { id: "info", name: "Dagprogramma", x: WORLD_W - 780, y: 90, w: 700, h: 170 },
     { id: "study", name: "Blokzone", x: 330, y: 340, w: 2100, h: 1850 },
     { id: "speeddate", name: "Speeddate", x: WORLD_W - 460, y: 340, w: 400, h: 1900 },
-    { id: "lounge", name: "Lounge", x: 50, y: 340, w: 270, h: 1900 },
+    { id: "lounge", name: "Lounge", x: 50, y: 360, w: 270, h: 1880 },
   ];
-  const base: PublicWorld = {
+  const base = {
     width: WORLD_W,
     height: WORLD_H,
     spawn: { x: WORLD_W / 2, y: WORLD_H - 160 },
     desks,
     speedTables,
-    zones,
     talkCircles,
-    schoolCorners,
+    zones,
+    seats,
+    blockers,
     daySlots: DAY_SLOTS,
     board,
     proximity: PROXIMITY,
@@ -200,20 +249,22 @@ export function inBox(box: { x: number; y: number; w: number; h: number }, x: nu
   return x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h;
 }
 
-export function pointInCircle(cx: number, cy: number, r: number, x: number, y: number) {
-  return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
-}
-
-export function talkCircleAt(world: Pick<PublicWorld, "talkCircles">, x: number, y: number) {
-  return world.talkCircles.find((c) => pointInCircle(c.x, c.y, c.r, x, y)) || null;
-}
-
-export function schoolCornerAt(world: Pick<PublicWorld, "schoolCorners">, x: number, y: number) {
-  return world.schoolCorners.find((c) => inBox(c, x, y)) || null;
-}
-
-export function zoneAt(world: Pick<PublicWorld, "zones">, id: string) {
+export function zoneById(world: Pick<PublicWorld, "zones">, id: string) {
   return world.zones.find((z) => z.id === id) || null;
+}
+
+export function inZone(world: Pick<PublicWorld, "zones">, x: number, y: number, id: string) {
+  const z = zoneById(world, id);
+  if (!z) return false;
+  return x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h;
+}
+
+export function inCircle(circle: TalkCircle, x: number, y: number, extra = 0) {
+  return Math.hypot(x - circle.x, y - circle.y) <= circle.r + extra;
+}
+
+export function tableById(world: Pick<PublicWorld, "speedTables">, id: unknown) {
+  return world.speedTables.find((t) => t.id === String(id)) || null;
 }
 
 export function circleHitsBox(x: number, y: number, r: number, box: Box) {
@@ -242,10 +293,6 @@ export function deskById(world: World, id: unknown) {
   return world.desks.find((d) => d.id === Number(id)) || null;
 }
 
-export function speedTableById(world: Pick<PublicWorld, "speedTables">, id: unknown) {
-  return world.speedTables.find((t) => t.id === String(id)) || null;
-}
-
 export function publicWorld(world: World): PublicWorld {
   return {
     width: world.width,
@@ -253,9 +300,10 @@ export function publicWorld(world: World): PublicWorld {
     spawn: world.spawn,
     desks: world.desks,
     speedTables: world.speedTables,
-    zones: world.zones,
     talkCircles: world.talkCircles,
-    schoolCorners: world.schoolCorners,
+    zones: world.zones,
+    seats: world.seats,
+    blockers: world.blockers,
     daySlots: world.daySlots,
     board: world.board,
     proximity: world.proximity,

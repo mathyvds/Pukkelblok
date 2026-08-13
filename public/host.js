@@ -22,7 +22,7 @@
     const zone = (id) => (state.zones || []).find((z) => z.id === id)?.count || 0;
     document.getElementById("s-study").textContent = String(zone("study"));
     document.getElementById("s-lounge").textContent = String(zone("lounge"));
-    document.getElementById("s-bar").textContent = String(zone("cafe"));
+    document.getElementById("s-bar").textContent = String(zone("coffee"));
     if (state.board) {
       document.getElementById("board-title").textContent = state.board.moment || state.board.title;
       document.getElementById("board-sub").textContent = state.board.subtitle;

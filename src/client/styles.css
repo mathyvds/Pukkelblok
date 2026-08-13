@@ -4,7 +4,9 @@
 
 @theme {
   --color-pkp: #ffe600;
-  --color-ink: #0a0a0a;
+  --color-pkp-mute: #d4bc3a;
+  --color-pink: #c45b7a;
+  --color-ink: #120e0c;
   --color-muted: #c8c8c8;
   --font-display: "Bebas Neue", Impact, sans-serif;
   --font-sans: "Geist Variable", Geist, system-ui, sans-serif;
@@ -56,7 +58,7 @@ kbd {
 #screen-landing {
   align-items: center;
   justify-content: center;
-  background: radial-gradient(900px 500px at 50% 0%, #3a3500 0%, #0a0a0a 58%);
+  background: radial-gradient(900px 520px at 50% 0%, #3a2a12 0%, #2a1520 42%, #120e0c 70%);
 }
 .hero-bg {
   position: absolute;
@@ -67,9 +69,15 @@ kbd {
 .tent-drape {
   position: absolute;
   inset: 0;
-  background: repeating-linear-gradient(90deg, #111 0 46px, #ffe600 46px 52px, #111 52px 98px);
+  background: repeating-linear-gradient(
+    90deg,
+    #1a1612 0 44px,
+    #d4bc3a 44px 50px,
+    #1a1612 50px 94px,
+    #c45b7a 94px 99px
+  );
   clip-path: polygon(0 0, 100% 0, 100% 26%, 50% 8%, 0 26%);
-  opacity: 0.95;
+  opacity: 0.92;
 }
 .string-lights {
   position: absolute;
@@ -78,13 +86,13 @@ kbd {
   right: 0;
   height: 40px;
   background:
-    radial-gradient(circle at 8% 50%, #ffe600 0 4px, transparent 5px),
-    radial-gradient(circle at 22% 40%, #fff 0 4px, transparent 5px),
-    radial-gradient(circle at 38% 55%, #ffe600 0 4px, transparent 5px),
-    radial-gradient(circle at 55% 35%, #fff 0 4px, transparent 5px),
-    radial-gradient(circle at 72% 50%, #ffe600 0 4px, transparent 5px),
-    radial-gradient(circle at 88% 40%, #fff 0 4px, transparent 5px);
-  filter: drop-shadow(0 0 8px #ffe600);
+    radial-gradient(circle at 8% 50%, #ffe66a 0 4px, transparent 5px),
+    radial-gradient(circle at 22% 40%, #e08aa6 0 4px, transparent 5px),
+    radial-gradient(circle at 38% 55%, #ffe66a 0 4px, transparent 5px),
+    radial-gradient(circle at 55% 35%, #e08aa6 0 4px, transparent 5px),
+    radial-gradient(circle at 72% 50%, #ffe66a 0 4px, transparent 5px),
+    radial-gradient(circle at 88% 40%, #e08aa6 0 4px, transparent 5px);
+  filter: drop-shadow(0 0 8px rgba(255, 230, 106, 0.55));
   animation: twinkle 2.6s ease-in-out infinite;
 }
 @keyframes twinkle {
@@ -168,6 +176,10 @@ kbd {
 .btn-primary.wide {
   width: 100%;
 }
+.btn-ghost.wide {
+  width: 100%;
+  margin-top: 0.4rem;
+}
 .btn-ghost {
   background: transparent;
   color: #fff;
@@ -184,6 +196,10 @@ kbd {
   padding: 0.45rem 0.8rem;
   font-size: 0.8rem;
   font-weight: 700;
+}
+.btn-hud.on {
+  border-color: var(--color-pink);
+  color: #f3ead2;
 }
 
 #screen-join {
@@ -344,7 +360,7 @@ kbd {
 
 #screen-tent {
   flex-direction: column;
-  background: #0a0a0a;
+  background: #120e0c;
 }
 #top-hud {
   height: 54px;
@@ -352,8 +368,9 @@ kbd {
   align-items: center;
   gap: 12px;
   padding: 0 14px;
-  background: #000;
+  background: #140f0c;
   border-bottom: 2px solid var(--color-pkp);
+  box-shadow: inset 0 -2px 0 var(--color-pink);
   flex-shrink: 0;
 }
 .brand {
@@ -402,7 +419,7 @@ kbd {
   position: relative;
   overflow: hidden;
   cursor: crosshair;
-  background: #141414;
+  background: #2a1c12;
 }
 #world {
   position: absolute;
@@ -564,8 +581,8 @@ kbd {
 #side-panel {
   width: 320px;
   flex-shrink: 0;
-  background: #0f0f0f;
-  border-left: 1px solid #222;
+  background: #16110e;
+  border-left: 1px solid #3a2a22;
   display: flex;
   flex-direction: column;
 }
@@ -719,6 +736,114 @@ kbd {
   font-size: 0.78rem;
   font-weight: 800;
 }
+.study-timer {
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(147, 197, 253, 0.45);
+  color: #93c5fd;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+.study-mins {
+  display: flex;
+  gap: 4px;
+}
+.study-mins button {
+  background: #111;
+  color: #93c5fd;
+  border: 1px solid #334;
+  border-radius: 4px;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.study-mins button:hover {
+  background: #1a2744;
+}
+#minimap {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 6;
+  width: 176px;
+  height: 136px;
+  border: 2px solid var(--color-pkp);
+  border-radius: 8px;
+  background: #070707;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+#date-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 8;
+  width: min(280px, 70%);
+  background: rgba(10, 10, 10, 0.92);
+  border: 2px solid var(--color-pkp);
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+  text-align: left;
+}
+.date-hud-kicker {
+  color: var(--color-pkp);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+#date-hud-title {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  letter-spacing: 0.04em;
+}
+#date-hud-ice {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  margin: 0.35rem 0 0.5rem;
+}
+#date-hud-timer {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  color: var(--color-pkp);
+  margin-bottom: 0.5rem;
+}
+#date-hud .btn-ghost {
+  width: 100%;
+}
+.person .shh {
+  position: absolute;
+  left: 50%;
+  bottom: 86px;
+  transform: translateX(-50%);
+  background: #1e3a5f;
+  color: #93c5fd;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.person .shh[hidden] {
+  display: none;
+}
+.person.silent .face {
+  border-color: #3b82f6;
+  filter: saturate(0.75);
+}
+.person.in-circle .nametag {
+  border-color: #e91e8c;
+}
+.chat-input-wrap input:disabled,
+#chat-shout:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 #announce-banner {
   position: absolute;
   top: 12px;
@@ -771,8 +896,8 @@ kbd {
   padding: 0 14px;
   font-size: 0.75rem;
   color: var(--color-muted);
-  border-top: 1px solid #222;
-  background: #000;
+  border-top: 1px solid #3a2a22;
+  background: #140f0c;
   flex-shrink: 0;
 }
 
@@ -1009,6 +1134,12 @@ kbd {
   }
   #notifs {
     right: 12px;
+  }
+  #minimap {
+    width: 128px;
+    height: 100px;
+    right: 8px;
+    bottom: 8px;
   }
   #top-hud {
     flex-wrap: wrap;

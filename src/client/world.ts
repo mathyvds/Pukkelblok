@@ -1,5 +1,6 @@
 import type { InfoBoard, PlayerMove, PublicPlayer, PublicWorld, Status } from "../shared/protocol";
-import { clampMove, inBox, solidsOf, type World } from "../shared/world";
+import { clampMove, inBox, inZone, solidsOf, type World } from "../shared/world";
+import { drawHomeNest, drawStaticTent, drawStringLights, drawWarmSpots } from "./tent-art";
 
 export type WorldPerson = PublicPlayer & {
   walkT: number;
@@ -12,6 +13,7 @@ export type WorldPerson = PublicPlayer & {
 export type WorldHandlers = {
   onMove?: (pos: { x: number; y: number; facing: 1 | -1; moving: boolean }) => void;
   onSit?: (deskId: number) => void;
+  onSitSpot?: (spotId: string) => void;
   onStand?: () => void;
   onClickPerson?: (id: string) => void;
   onBarIce?: () => void;
@@ -44,14 +46,15 @@ const state = {
   viewW: 0,
   viewH: 0,
   target: null as { x: number; y: number } | null,
+  followId: null as string | null,
   lastSend: 0,
   lastTs: 0,
   lastPos: { x: 0, y: 0, moving: false },
   handlers: {} as WorldHandlers,
   mounted: false,
+  minimap: null as HTMLCanvasElement | null,
   board: null as InfoBoard | null,
   tableIces: new Map<string, string>(),
-  minimap: null as HTMLCanvasElement | null,
 };
 
 export function mount(opts: {
@@ -59,8 +62,8 @@ export function mount(opts: {
   viewport: HTMLElement;
   layer: HTMLElement;
   avatarsEl: HTMLElement;
-  handlers: WorldHandlers;
   minimap?: HTMLCanvasElement;
+  handlers: WorldHandlers;
 }) {
   state.canvas = opts.canvas;
   state.ctx = opts.canvas.getContext("2d");
@@ -68,46 +71,25 @@ export function mount(opts: {
   state.layer = opts.layer;
   state.avatarsEl = opts.avatarsEl;
   state.handlers = opts.handlers;
-  state.minimap = opts.minimap || null;
+  if (opts.minimap) {
+    state.minimap = opts.minimap;
+    if (!opts.minimap.dataset.bound) {
+      opts.minimap.dataset.bound = "1";
+      opts.minimap.addEventListener("click", onMinimapClick);
+    }
+  }
   resize();
   if (!state.mounted) {
     window.addEventListener("resize", resize);
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
     state.canvas.addEventListener("click", onClick);
-    state.minimap?.addEventListener("click", onMinimapClick);
     state.mounted = true;
+    void document.fonts?.ready?.then(() => {
+      state.cache = null;
+    });
     loop(performance.now());
   }
-}
-
-export function setBoard(board: InfoBoard) {
-  state.board = board;
-  if (state.world) state.world.board = board;
-}
-
-export function setTableIce(id: string, ice: string | null) {
-  if (ice) state.tableIces.set(id, ice);
-  else state.tableIces.delete(id);
-}
-
-export function replaceTableIces(ices: { id: string; ice: string }[]) {
-  state.tableIces.clear();
-  for (const item of ices) state.tableIces.set(item.id, item.ice);
-}
-
-export function walkTo(x: number, y: number) {
-  const self = me();
-  if (self?.sittingTableId) return;
-  if (self?.sittingDeskId) {
-    state.handlers.onStand?.();
-    self.sittingDeskId = null;
-  }
-  state.target = { x, y };
-}
-
-export function deskOf(id: number) {
-  return state.world?.desks.find((d) => d.id === id) || null;
 }
 
 export function setWorld(world: PublicWorld) {
@@ -156,12 +138,93 @@ export function applyMoves(moves: PlayerMove[]) {
     p.facing = m.facing;
     p.moving = m.moving;
     p.sittingDeskId = m.sittingDeskId;
-    p.sittingTableId = m.sittingTableId;
+    p.sittingSpotId = m.sittingSpotId ?? p.sittingSpotId ?? null;
   }
 }
 
-export function me() {
+function me() {
   return (state.meId && state.players.get(state.meId)) || null;
+}
+
+export function walkTo(x: number, y: number) {
+  const self = me();
+  if (!self || self.inDate) return;
+  if (self.sittingDeskId || self.sittingSpotId) {
+    state.handlers.onStand?.();
+    self.sittingDeskId = null;
+    self.sittingSpotId = null;
+  }
+  state.followId = null;
+  state.target = { x, y };
+}
+
+export function walkToPlayer(id: string) {
+  const self = me();
+  const other = state.players.get(id);
+  if (!self || !other || self.inDate) return;
+  if (self.sittingDeskId || self.sittingSpotId) {
+    state.handlers.onStand?.();
+    self.sittingDeskId = null;
+    self.sittingSpotId = null;
+  }
+  state.followId = id;
+  retargetFollow();
+}
+
+export function setBoard(board: InfoBoard) {
+  state.board = board;
+  if (state.world) state.world.board = board;
+}
+
+export function setTableIce(id: string, ice: string | null) {
+  if (ice) state.tableIces.set(id, ice);
+  else state.tableIces.delete(id);
+}
+
+export function replaceTableIces(ices: { id: string; ice: string }[]) {
+  state.tableIces.clear();
+  for (const item of ices) state.tableIces.set(item.id, item.ice);
+}
+
+export function deskOf(id: number) {
+  return state.world?.desks.find((d) => d.id === id) || null;
+}
+
+function retargetFollow() {
+  const self = me();
+  const p = state.followId ? state.players.get(state.followId) : null;
+  if (!self || !p) {
+    state.followId = null;
+    return;
+  }
+  const px = p.ix ?? p.x;
+  const py = p.iy ?? p.y;
+  const dx = px - self.x;
+  const dy = py - self.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 72) {
+    state.followId = null;
+    state.target = null;
+    return;
+  }
+  state.target = { x: px - (dx / dist) * 62, y: py - (dy / dist) * 62 };
+}
+
+export function myPlaceHint() {
+  const self = me();
+  const w = state.world;
+  if (!self || !w) return "";
+  if (self.inDate) return "Je zit aan een speeddate-tafel";
+  if (self.status === "studeren") return `Stilte · jouw bureau ${self.homeDeskId}`;
+  if (self.sittingSpotId?.startsWith("stool")) return "Koffiehoek · je zit aan de bar";
+  if (self.sittingSpotId?.startsWith("lounge")) return "Lounge · je zit op de bank";
+  if (self.talkCircleId) return "Lounge · praatcirkel — geen timer";
+  if (inZone(w, self.x, self.y, "coffee")) return "Koffiehoek · hier mag je praten";
+  if (inZone(w, self.x, self.y, "lounge")) return "Lounge · schuif aan bij een cirkel";
+  if (inZone(w, self.x, self.y, "speeddate")) return "Speeddate-hoek";
+  if (self.sittingDeskId) return `Je zit aan bureau ${self.sittingDeskId}`;
+  if (self.homeDeskId) return `Jouw bureau: ${self.homeDeskId}`;
+  return "";
 }
 
 export function setTouch(dir: TouchDir, down: boolean) {
@@ -197,34 +260,42 @@ function onKeyUp(e: KeyboardEvent) {
 }
 
 function onClick(e: MouseEvent) {
+  const self = me();
+  if (self?.inDate) return;
   const worldPt = screenToWorld(e.clientX, e.clientY);
   const person = hitPerson(worldPt.x, worldPt.y);
   if (person && person.id !== state.meId) {
     state.handlers.onClickPerson?.(person.id);
     return;
   }
-  const self = me();
-  if (self?.sittingTableId) return;
-  const bar = state.world?.zones.find((z) => z.id === "bar");
-  const cafeAisle = state.world?.zones.find((z) => z.id === "cafe");
-  if ((cafeAisle && inBox(cafeAisle, worldPt.x, worldPt.y)) || (bar && inBox(bar, worldPt.x, worldPt.y))) {
-    state.handlers.onBarIce?.();
-  }
   const desk = hitDesk(worldPt.x, worldPt.y);
   if (desk) {
     state.handlers.onSit?.(desk.id);
     state.target = null;
+    state.followId = null;
     return;
   }
-  if (self?.sittingDeskId) state.handlers.onStand?.();
+  const seat = hitSeat(worldPt.x, worldPt.y);
+  if (seat) {
+    state.handlers.onSitSpot?.(seat.id);
+    state.target = null;
+    state.followId = null;
+    return;
+  }
+  const coffee = state.world?.zones.find((z) => z.id === "coffee" || z.id === "bar");
+  if (coffee && inBox(coffee, worldPt.x, worldPt.y)) {
+    state.handlers.onBarIce?.();
+  }
+  if (self?.sittingDeskId || self?.sittingSpotId) state.handlers.onStand?.();
+  state.followId = null;
   state.target = worldPt;
 }
 
 function onMinimapClick(e: MouseEvent) {
   const w = state.world;
-  const mm = state.minimap;
-  if (!w || !mm) return;
-  const rect = mm.getBoundingClientRect();
+  const canvas = state.minimap;
+  if (!w || !canvas) return;
+  const rect = canvas.getBoundingClientRect();
   const x = ((e.clientX - rect.left) / rect.width) * w.width;
   const y = ((e.clientY - rect.top) / rect.height) * w.height;
   walkTo(x, y);
@@ -250,6 +321,47 @@ function hitPerson(x: number, y: number) {
 
 function hitDesk(x: number, y: number) {
   return state.world?.desks.find((d) => x >= d.x && x <= d.x + d.w && y >= d.y && y <= d.y + d.h + 40) || null;
+}
+
+function takenSpots() {
+  const taken = new Set<string>();
+  for (const p of state.players.values()) {
+    if (p.sittingSpotId) taken.add(p.sittingSpotId);
+  }
+  return taken;
+}
+
+function nearestOpenSeat(x: number, y: number, kind?: "stool" | "lounge") {
+  const world = state.world;
+  if (!world) return null;
+  const taken = takenSpots();
+  let best = null as (typeof world.seats)[number] | null;
+  let bestD = 140;
+  for (const seat of world.seats) {
+    if (kind && seat.kind !== kind) continue;
+    if (taken.has(seat.id) && seat.id !== me()?.sittingSpotId) continue;
+    const d = Math.hypot(x - seat.seatX, y - seat.seatY);
+    if (d < bestD) {
+      best = seat;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+function hitSeat(x: number, y: number) {
+  const world = state.world;
+  if (!world) return null;
+  const direct = world.seats.find((s) => {
+    const padTop = s.kind === "lounge" ? 90 : 8;
+    return x >= s.x - 8 && x <= s.x + s.w + 8 && y >= s.y - padTop && y <= s.y + s.h + 36;
+  });
+  if (direct) return direct;
+  const bar = world.zones.find((z) => z.id === "bar");
+  if (bar && x >= bar.x && x <= bar.x + bar.w && y >= bar.y && y <= bar.y + 120) {
+    return nearestOpenSeat(x, y, "stool");
+  }
+  return null;
 }
 
 function loop(ts: number) {
@@ -284,30 +396,37 @@ function update(dt: number) {
   const self = me();
   const world = state.world;
   if (!self || !world) return;
+  if (state.followId) retargetFollow();
   const dir = wantedDir();
   let moving = false;
-  if (self.sittingTableId) {
+  if (self.inDate) {
     self.moving = false;
-  } else if (self.sittingDeskId && (dir.dx || dir.dy)) {
-    state.handlers.onStand?.();
-    self.sittingDeskId = null;
-  }
-  if (!self.sittingDeskId && !self.sittingTableId) {
-    if (dir.dx || dir.dy) {
-      const len = Math.hypot(dir.dx, dir.dy) || 1;
-      tryMove(self, (dir.dx / len) * SPEED * dt, (dir.dy / len) * SPEED * dt);
-      self.facing = dir.dx < 0 ? -1 : dir.dx > 0 ? 1 : self.facing;
-      moving = true;
-      state.target = null;
-    } else if (state.target) {
-      const tdx = state.target.x - self.x;
-      const tdy = state.target.y - self.y;
-      const dist = Math.hypot(tdx, tdy);
-      if (dist > 6) {
-        tryMove(self, (tdx / dist) * SPEED * dt, (tdy / dist) * SPEED * 0.9 * dt);
-        self.facing = tdx < 0 ? -1 : 1;
+    state.target = null;
+    state.followId = null;
+  } else {
+    if ((self.sittingDeskId || self.sittingSpotId) && (dir.dx || dir.dy)) {
+      state.handlers.onStand?.();
+      self.sittingDeskId = null;
+      self.sittingSpotId = null;
+    }
+    if (!self.sittingDeskId && !self.sittingSpotId) {
+      if (dir.dx || dir.dy) {
+        const len = Math.hypot(dir.dx, dir.dy) || 1;
+        tryMove(self, (dir.dx / len) * SPEED * dt, (dir.dy / len) * SPEED * dt);
+        self.facing = dir.dx < 0 ? -1 : dir.dx > 0 ? 1 : self.facing;
         moving = true;
-      } else state.target = null;
+        state.target = null;
+        state.followId = null;
+      } else if (state.target) {
+        const tdx = state.target.x - self.x;
+        const tdy = state.target.y - self.y;
+        const dist = Math.hypot(tdx, tdy);
+        if (dist > 6) {
+          tryMove(self, (tdx / dist) * SPEED * dt, (tdy / dist) * SPEED * 0.9 * dt);
+          self.facing = tdx < 0 ? -1 : 1;
+          moving = true;
+        } else state.target = null;
+      }
     }
   }
   self.moving = moving;
@@ -347,128 +466,14 @@ function update(dt: number) {
   if (world.height < state.viewH) state.camY = (world.height - state.viewH) / 2;
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, fill: string) {
-  ctx.fillStyle = fill;
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, r);
-  ctx.fill();
-}
-
 function drawStatic(ctx: CanvasRenderingContext2D, w: PublicWorld) {
-  ctx.fillStyle = "#141414";
-  ctx.fillRect(0, 0, w.width, w.height);
-  for (let y = 80; y < w.height; y += 28) {
-    ctx.fillStyle = "#1c1c1c";
-    ctx.fillRect(0, y, w.width, 2);
-  }
-  const stripe = ctx.createLinearGradient(0, 0, 0, 220);
-  stripe.addColorStop(0, "#FFE600");
-  stripe.addColorStop(1, "rgba(255,230,0,0)");
-  ctx.fillStyle = stripe;
-  ctx.globalAlpha = 0.18;
-  ctx.fillRect(0, 0, w.width, 220);
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "#000";
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(w.width, 0);
-  ctx.lineTo(w.width, 90);
-  ctx.lineTo(w.width / 2, 30);
-  ctx.lineTo(0, 90);
-  ctx.closePath();
-  ctx.fill();
-
-  const zone = (id: string) => w.zones.find((z) => z.id === id);
-  const bar = zone("bar");
-  const stage = zone("stage");
-  const info = zone("info");
-  const lounge = zone("lounge");
-  const speed = zone("speeddate");
-
-  if (bar) {
-    roundRect(ctx, bar.x + 10, bar.y + 10, bar.w - 20, bar.h - 20, 16, "#111");
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 28px Geist, sans-serif";
-    ctx.fillText("Koffie & fris", bar.x + 40, bar.y + 58);
-    ctx.fillStyle = "#f5f5f5";
-    ctx.font = "500 16px Geist, sans-serif";
-    ctx.fillText("Even rechtstaan? Haal een kop en kom praten.", bar.x + 40, bar.y + 88);
-  }
-
-  if (stage) {
-    roundRect(ctx, stage.x, stage.y, stage.w, stage.h, 18, "#000");
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 42px Bebas Neue, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("PKP26  ·  CLUB  ·  PUKKELBLOK", stage.x + stage.w / 2, stage.y + 58);
-    ctx.font = "600 18px Geist, sans-serif";
-    ctx.fillText("100 bureaus  ·  20–23 AUG  ·  Kiewit", stage.x + stage.w / 2, stage.y + 96);
-    ctx.textAlign = "left";
-  }
-
-  if (info) {
-    roundRect(ctx, info.x + 10, info.y + 10, info.w - 20, info.h - 20, 16, "#111");
-  }
-
-  if (lounge) {
-    roundRect(ctx, lounge.x, lounge.y, lounge.w, lounge.h, 20, "#111");
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 20px Geist, sans-serif";
-    ctx.fillText("Lounge", lounge.x + 22, lounge.y + 40);
-    for (const corner of w.schoolCorners) {
-      roundRect(ctx, corner.x, corner.y, corner.w, corner.h, 14, "#1a1a1a");
-      ctx.fillStyle = "#FFE600";
-      ctx.font = "800 22px Geist, sans-serif";
-      ctx.fillText(corner.label, corner.x + 18, corner.y + 48);
-      ctx.fillStyle = "#888";
-      ctx.font = "500 13px Geist, sans-serif";
-      ctx.fillText("herkenningshoek", corner.x + 18, corner.y + 72);
-    }
-    ctx.fillStyle = "#2a2a2a";
-    for (const circle of w.talkCircles) {
-      ctx.beginPath();
-      ctx.ellipse(circle.x, circle.y, 70, 36, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#FFE600";
-      ctx.font = "700 13px Geist, sans-serif";
-      ctx.fillText(circle.label, circle.x - 28, circle.y + 4);
-      ctx.fillStyle = "#2a2a2a";
-    }
-  }
-
-  for (const d of w.desks) {
-    roundRect(ctx, d.x, d.y, d.w, d.h, 10, "#2a2a2a");
-    roundRect(ctx, d.x + 10, d.y + 10, d.w - 20, 32, 6, "#0a0a0a");
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 15px Geist, sans-serif";
-    ctx.fillText(d.label, d.x + 16, d.y + 66);
-    ctx.fillStyle = "#1a1a1a";
-    ctx.beginPath();
-    ctx.ellipse(d.seatX, d.seatY + 6, 22, 10, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  if (speed) {
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 22px Geist, sans-serif";
-    ctx.fillText("Speeddate-hoek", speed.x + 20, speed.y + 28);
-  }
-  for (const t of w.speedTables) {
-    roundRect(ctx, t.x, t.y, t.w, t.h, 12, "#1a1a1a");
-    ctx.fillStyle = "#fff";
-    ctx.font = "700 16px Geist, sans-serif";
-    ctx.fillText(t.label, t.x + 16, t.y + 54);
-  }
-
-  ctx.strokeStyle = "rgba(255,230,0,.35)";
-  ctx.lineWidth = 8;
-  ctx.strokeRect(24, 24, w.width - 48, w.height - 48);
+  drawStaticTent(ctx, w);
 }
 
 function ensureCache() {
   const w = state.world;
   if (!w) return;
-  if (state.cache && state.cache.width === w.width) return;
+  if (state.cache && state.cache.width === w.width && state.cache.height === w.height) return;
   const c = document.createElement("canvas");
   c.width = w.width;
   c.height = w.height;
@@ -488,104 +493,92 @@ function draw() {
   ensureCache();
   if (state.cache) ctx.drawImage(state.cache, 0, 0);
   const t = Date.now() / 400;
-  for (let i = 0; i < 18; i++) {
-    const x = 80 + (i * (w.width - 160)) / 17;
-    const y = 58 + Math.sin(t + i) * 4;
-    ctx.fillStyle = i % 2 ? "#FFE600" : "#ffffff";
-    ctx.globalAlpha = 0.55 + Math.sin(t * 1.4 + i) * 0.35;
-    ctx.beginPath();
-    ctx.arc(x, y, 5, 0, Math.PI * 2);
-    ctx.fill();
+  drawWarmSpots(ctx, w, t);
+  drawStringLights(ctx, w, t);
+  const self = me();
+  if (self?.homeDeskId) {
+    const home = w.desks.find((d) => d.id === self.homeDeskId);
+    if (home) drawHomeNest(ctx, home);
   }
   ctx.globalAlpha = 1;
-  drawLive(ctx, w);
-  ctx.restore();
-  state.layer.style.transform = `translate(${-state.camX}px, ${-state.camY}px)`;
-  drawMinimap();
-}
-
-function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) {
-  const words = text.split(" ");
-  let line = "";
-  let cy = y;
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      ctx.fillText(line, x, cy);
-      line = word;
-      cy += lineHeight;
-    } else line = test;
-  }
-  if (line) ctx.fillText(line, x, cy);
-}
-
-function drawLive(ctx: CanvasRenderingContext2D, w: PublicWorld) {
-  const board = state.board || w.board;
-  const info = w.zones.find((z) => z.id === "info");
-  if (info && board) {
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 22px Geist, sans-serif";
-    ctx.fillText(board.moment || board.title, info.x + 40, info.y + 58);
-    ctx.fillStyle = "#ddd";
-    ctx.font = "500 15px Geist, sans-serif";
-    ctx.fillText(board.subtitle, info.x + 40, info.y + 88);
-  }
-
-  for (const circle of w.talkCircles) {
-    let n = 0;
-    for (const p of state.players.values()) if (p.talkCircleId === circle.id) n += 1;
-    ctx.strokeStyle = n ? "rgba(255,230,0,.7)" : "rgba(255,230,0,.22)";
-    ctx.lineWidth = n ? 4 : 2;
+  for (const circle of w.talkCircles || []) {
+    const n = [...state.players.values()].filter((p) => p.talkCircleId === circle.id).length;
     ctx.beginPath();
     ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
+    ctx.fillStyle = n ? "rgba(196, 91, 122, 0.16)" : "rgba(212, 188, 58, 0.07)";
+    ctx.fill();
+    ctx.setLineDash([10, 8]);
+    ctx.strokeStyle = n ? "rgba(212, 188, 58, 0.55)" : "rgba(232, 176, 96, 0.28)";
+    ctx.lineWidth = 2;
     ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#e8d5a8";
+    ctx.font = "700 13px Geist, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(n ? `Cirkel  ${n}/${circle.max}` : circle.label || "Schuif aan", circle.x, circle.y - 8);
+    if (circle.label && n) {
+      ctx.fillStyle = "#c45b7a";
+      ctx.font = "600 11px Geist, sans-serif";
+      ctx.fillText(circle.label, circle.x, circle.y + 10);
+    }
+    ctx.textAlign = "left";
   }
-
+  const board = state.board || w.board;
+  const info = w.zones.find((z) => z.id === "info");
+  if (info && board?.moment) {
+    ctx.fillStyle = "#ffe66a";
+    ctx.font = "800 22px Geist, sans-serif";
+    ctx.fillText(board.moment, info.x + 40, info.y + 28);
+  }
   for (const t of w.speedTables) {
     const ice = state.tableIces.get(t.id);
     if (!ice) continue;
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "700 14px Geist, sans-serif";
-    wrapText(ctx, ice, t.x + 8, t.y - 12, t.w - 12, 16);
-  }
-}
-
-function drawMinimap() {
-  const mm = state.minimap;
-  const w = state.world;
-  const self = me();
-  if (!mm || !w) return;
-  const ctx = mm.getContext("2d");
-  if (!ctx) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cssW = mm.clientWidth || 200;
-  const cssH = mm.clientHeight || 155;
-  if (mm.width !== cssW * dpr || mm.height !== cssH * dpr) {
-    mm.width = cssW * dpr;
-    mm.height = cssH * dpr;
-  }
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, cssW, cssH);
-  const sx = cssW / w.width;
-  const sy = cssH / w.height;
-  ctx.save();
-  ctx.scale(sx, sy);
-  if (state.cache) ctx.drawImage(state.cache, 0, 0);
-  else {
-    ctx.fillStyle = "#141414";
-    ctx.fillRect(0, 0, w.width, w.height);
-  }
-  for (const p of state.players.values()) {
-    ctx.fillStyle = p.id === state.meId ? "#FFE600" : "#888";
-    ctx.beginPath();
-    ctx.arc(p.ix ?? p.x, p.iy ?? p.y, p.id === state.meId ? 28 : 18, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = "#ffe66a";
+    ctx.font = "700 13px Geist, sans-serif";
+    ctx.fillText(ice, t.x + 8, t.y - 8);
   }
   ctx.restore();
-  if (self) {
-    ctx.strokeStyle = "rgba(255,230,0,.85)";
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(state.camX * sx, state.camY * sy, state.viewW * sx, state.viewH * sy);
+  state.layer.style.transform = `translate(${-state.camX}px, ${-state.camY}px)`;
+  paintMinimap();
+}
+
+function paintMinimap() {
+  const canvas = state.minimap;
+  const w = state.world;
+  if (!canvas || !w) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  const sx = cw / w.width;
+  const sy = ch / w.height;
+  ctx.fillStyle = "#070707";
+  ctx.fillRect(0, 0, cw, ch);
+  const fillZone = (id: string, color: string) => {
+    const z = w.zones.find((zone) => zone.id === id);
+    if (!z) return;
+    ctx.fillStyle = color;
+    ctx.fillRect(z.x * sx, z.y * sy, z.w * sx, z.h * sy);
+  };
+  fillZone("study", "rgba(59,130,246,0.22)");
+  fillZone("coffee", "rgba(255,180,40,0.34)");
+  fillZone("lounge", "rgba(233,30,140,0.22)");
+  fillZone("speeddate", "rgba(255,230,0,0.16)");
+  ctx.strokeStyle = "rgba(255,230,0,0.35)";
+  ctx.lineWidth = 1;
+  for (const c of w.talkCircles) {
+    ctx.beginPath();
+    ctx.arc(c.x * sx, c.y * sy, Math.max(3, c.r * sx), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(255,255,255,0.4)";
+  ctx.strokeRect(state.camX * sx, state.camY * sy, state.viewW * sx, state.viewH * sy);
+  for (const p of state.players.values()) {
+    const mine = p.id === state.meId;
+    ctx.fillStyle = mine ? "#FFE600" : STATUS_COLOR[p.status] || "#fff";
+    ctx.beginPath();
+    ctx.arc((p.ix ?? p.x) * sx, (p.iy ?? p.y) * sy, mine ? 3.6 : 2.3, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -601,6 +594,7 @@ function ensureNode(p: WorldPerson) {
       <div class="torso"></div>
       <img class="face" alt=""/>
       <span class="st-dot"></span>
+      <span class="shh" hidden>stil</span>
     </div>
     <div class="nametag"></div>`;
   el.addEventListener("click", (ev) => {
@@ -619,32 +613,39 @@ function syncDom() {
     const y = p.iy ?? p.y;
     el.style.transform = `translate(${x}px, ${y}px)`;
     el.style.zIndex = String(100 + Math.floor(y));
-    el.classList.toggle("walking", Boolean(p.moving) && !p.sittingDeskId);
-    el.classList.toggle("sitting", Boolean(p.sittingDeskId || p.sittingTableId));
+    const seated = Boolean(p.sittingDeskId) || Boolean(p.sittingSpotId) || Boolean(p.inDate);
+    el.classList.toggle("walking", Boolean(p.moving) && !seated);
+    el.classList.toggle("sitting", seated);
     el.classList.toggle("face-left", p.facing === -1);
+    el.classList.toggle("silent", p.status === "studeren");
+    el.classList.toggle("in-circle", Boolean(p.talkCircleId));
     (el.querySelector(".torso") as HTMLElement).style.background = p.color || "#FFE600";
     const img = el.querySelector(".face") as HTMLImageElement;
     if (img.getAttribute("src") !== p.avatarUrl) img.src = p.avatarUrl;
-    el.querySelector(".nametag")!.textContent = p.firstName;
+    const silent = p.status === "studeren";
+    el.querySelector(".nametag")!.textContent = silent ? `${p.firstName} · stil` : p.firstName;
     (el.querySelector(".st-dot") as HTMLElement).style.background = STATUS_COLOR[p.status] || "#22c55e";
+    const shh = el.querySelector(".shh") as HTMLElement | null;
+    if (shh) shh.hidden = !silent;
     const bubble = el.querySelector(".bubble")!;
-    if (p.typing && p.draft) {
+    const self = me();
+    const hideTalk = silent || self?.status === "studeren";
+    if (!hideTalk && p.typing && p.draft) {
       bubble.textContent = p.draft;
       bubble.className = "bubble on typing";
-    } else if (p.waving) {
+    } else if (!hideTalk && p.waving) {
       bubble.textContent = p.waving;
       bubble.className = "bubble on wave";
-    } else if (p.bubble) {
+    } else if (!hideTalk && p.bubble) {
       bubble.textContent = p.bubble;
       bubble.className = "bubble on";
     } else {
       bubble.className = "bubble";
     }
-    const self = me();
     if (self && p.id !== self.id) {
       const dist = Math.hypot((p.ix ?? p.x) - self.x, (p.iy ?? p.y) - self.y);
       const range = state.world?.proximity || 420;
-      el.style.opacity = dist > range ? "0.42" : "1";
+      el.style.opacity = silent ? "0.78" : dist > range ? "0.42" : "1";
       if (dist > range) bubble.className = "bubble";
     } else {
       el.style.opacity = "1";

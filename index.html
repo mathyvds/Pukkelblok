@@ -14,21 +14,21 @@
       <div class="tent-drape"></div>
     </div>
     <div class="hero">
-      <p class="eyebrow">PKP26 · 20–23 AUG · Kiewit</p>
+      <p class="eyebrow">PKP26 · Club-tent · dag vóór het festival · Kiewit</p>
       <h1>Blok<span>bar</span></h1>
       <p class="lede">
-        Pukkelblok op Pukkelpop. Je zit aan je eigen bureau in de Club-tent.
-        Stap de virtuele Blokbar in om andere studenten te ontmoeten, te chatten
-        of te speeddaten — zonder e-mail, met een cookie en je naam.
+        De tent staat al. Morgen begint Pukkelpop. Vanavond blok je in de Club-tent:
+        koffie, loungebanken, een leeg podium en string lights die al knipperen.
+        Stap binnen om andere studenten te ontmoeten — zonder e-mail, met een cookie en je naam.
       </p>
       <div class="hero-actions">
         <button class="btn-primary" id="btn-enter">Kom de tent in</button>
       </div>
       <ul class="hero-points">
         <li>Tot 100 studenten, 100 bureaus</li>
-        <li>Loop rond, zit aan een bureau</li>
+        <li>Koffiebar, lounge, dagprogramma</li>
         <li>Chat + privéberichten</li>
-        <li>Speeddate-hoek</li>
+        <li>Speeddate om 16:30</li>
       </ul>
       <section class="house-rules" id="house-rules">
         <h2>Huisregels</h2>
@@ -108,7 +108,12 @@
         <img id="me-face" alt=""/>
         <span id="me-name"></span>
       </div>
-      <span id="pause-timer" class="pause-timer" hidden>Pauze</span>
+      <span id="pause-timer" class="pause-timer" hidden>Pauze 10:00</span>
+      <span id="study-timer" class="study-timer" hidden>Blok 50:00</span>
+      <div id="study-mins" class="study-mins" hidden>
+        <button type="button" data-mins="25">25</button>
+        <button type="button" data-mins="50">50</button>
+      </div>
       <select id="status-select" title="Status">
         <option value="kennismaken">Klaar om kennis te maken</option>
         <option value="studeren">Studeren</option>
@@ -122,15 +127,23 @@
         <button type="button" data-wave="💛">💛</button>
       </div>
       <button class="btn-hud" id="btn-speeddate">Speeddate</button>
+      <button class="btn-hud" id="btn-sound" aria-pressed="false" title="Tentgeluid: zeil, koffie, verre crew. Standaard uit.">Geluid uit</button>
       <button class="btn-hud" id="btn-logout">Uitloggen</button>
     </header>
 
     <div id="game-main">
       <div id="viewport">
         <canvas id="world"></canvas>
-        <canvas id="minimap" width="200" height="155" aria-label="Kaart van de tent"></canvas>
         <div id="announce-banner" hidden></div>
         <div id="onboard-banner" hidden></div>
+        <div id="date-hud" hidden>
+          <p class="date-hud-kicker">Speeddate</p>
+          <strong id="date-hud-title">Tafel</strong>
+          <p id="date-hud-ice"></p>
+          <span id="date-hud-timer">3:00</span>
+          <button type="button" class="btn-ghost" id="date-hud-leave">Tafel verlaten</button>
+        </div>
+        <canvas id="minimap" width="176" height="136" aria-label="Minimap van de tent"></canvas>
         <div id="world-dom">
           <div id="avatars"></div>
         </div>
@@ -182,7 +195,7 @@
     </div>
 
     <footer id="bot-hud">
-      <span>Beweeg met <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> of klik. Chat is in de buurt; 📣 is de hele tent.</span>
+      <span>Beweeg met <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> of klik. Minimap rechtsonder. Lounge = bank + cirkel; koffiehoek = praten; blokzone = stilte. Blokken blijft de hoofdzaak.</span>
       <span id="desk-hint"></span>
     </footer>
   </div>
@@ -197,10 +210,11 @@
       <p class="prof-meta" id="prof-school"></p>
       <p class="ice" id="prof-ice-text" hidden></p>
       <div class="prof-actions">
-        <button class="btn-primary wide" id="prof-dm">Stuur een privébericht</button>
-        <button class="btn-ghost wide" id="prof-walk">Loop naar bureau</button>
+        <button class="btn-ghost wide" id="prof-walk">Loop naar deze student</button>
+        <button class="btn-ghost wide" id="prof-desk">Loop naar bureau</button>
         <button class="btn-ghost wide" id="prof-wave">Zwaai 👋</button>
         <button class="btn-ghost wide" id="prof-ice">IJsbreker</button>
+        <button class="btn-primary wide" id="prof-dm">Stuur een privébericht</button>
         <button class="btn-ghost wide" id="prof-block">Blokkeer</button>
         <button class="btn-ghost wide danger" id="prof-report">Meld bij host</button>
       </div>
@@ -210,7 +224,8 @@
   <div class="modal-bg" id="modal-date">
     <div class="modal" role="dialog">
       <h3>Speeddate</h3>
-      <p id="date-copy">Drie minuten, één iemand, één ijsbreker. Daarna mag je verder chatten.</p>
+      <p id="date-copy">Je wordt aan een tafel in de tent gezet. Drie minuten, één ijsbreker. Daarna mag je aan tafel verder praten.</p>
+      <p class="mini">De lounge is om gewoon aan te schuiven — zonder timer, zonder matching.</p>
       <label class="check-row">
         <input type="checkbox" id="date-same-study"/>
         Liever iemand met dezelfde studierichting
