@@ -111,6 +111,7 @@
         <option value="studeren">Studeren</option>
         <option value="pauze">Pauze (10 min)</option>
       </select>
+      <input id="status-text" maxlength="60" autocomplete="off" placeholder="bv. statistiek, arrest, pauze tot 11u" title="Korte status, zichtbaar voor anderen"/>
       <button class="btn-hud" id="btn-speeddate">Speeddate</button>
       <button class="btn-hud" id="btn-sound" aria-pressed="false" title="Tentgeluid: zeil, koffie, verre crew. Standaard uit.">Geluid uit</button>
       <button class="btn-hud" id="btn-logout">Uitloggen</button>
@@ -148,6 +149,21 @@
           <button class="ptab" data-tab="dm">Berichten <span class="badge" id="dm-badge" hidden>0</span></button>
         </div>
         <div class="tab-pane on" id="tab-online">
+          <div class="online-filters" id="online-filters">
+            <div class="filter-chips" id="filter-status">
+              <button type="button" class="fchip on" data-status="">Alle</button>
+              <button type="button" class="fchip" data-status="studeren">Studeren</button>
+              <button type="button" class="fchip" data-status="pauze">Pauze</button>
+              <button type="button" class="fchip" data-status="kennismaken">Kennismaken</button>
+            </div>
+            <select id="filter-school" title="School">
+              <option value="">Alle scholen</option>
+            </select>
+            <select id="filter-program" title="Studierichting">
+              <option value="">Alle richtingen</option>
+            </select>
+            <label class="filter-near"><input type="checkbox" id="filter-near"/> In de buurt</label>
+          </div>
           <div class="online-list" id="online-list"></div>
         </div>
         <div class="tab-pane" id="tab-chat">
@@ -176,7 +192,7 @@
     </div>
 
     <footer id="bot-hud">
-      <span>Beweeg met <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> of klik. Minimap rechtsonder. Lounge = bank + cirkel; koffiehoek = praten; blokzone = stilte. Blokken blijft de hoofdzaak.</span>
+      <span>Studeren = niet storen. WASD = pauze. Minimap rechtsonder. Lounge = bank + cirkel; koffiehoek = praten; blokzone = stilte.</span>
       <span id="desk-hint"></span>
     </footer>
   </div>

@@ -21,6 +21,7 @@ export const CIRCLE_MAX = 4;
 export const STUDY_MINUTES = [25, 50] as const;
 export type StudyMinutes = (typeof STUDY_MINUTES)[number];
 export const DEFAULT_STUDY_MINUTES: StudyMinutes = 50;
+export const STUDY_PAUSE_MS = { 25: 5 * 60 * 1000, 50: 10 * 60 * 1000 } as const;
 
 export const chatScopes = ["near", "tent", "circle", "coffee", "date"] as const;
 export type ChatScope = (typeof chatScopes)[number];

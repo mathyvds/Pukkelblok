@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateNames, parseAvatar, validateChat, shirtColor, sniffImageMime } from "../src/shared/validate";
+import {
+  validateNames,
+  parseAvatar,
+  validateChat,
+  shirtColor,
+  sniffImageMime,
+  validateStatusText,
+  validateStudyMinutes,
+} from "../src/shared/validate";
 import { createWorld, clampMove, deskById, inZone, PLAYER_R } from "../src/shared/world";
 import { createStore } from "../src/server/store";
 import { cookieSecure, createRateLimit, requireCookieSecret, timingSafeEqualString } from "../src/server/security";
@@ -20,6 +28,18 @@ test("chat: trim en limiet", () => {
   const ok = validateChat("  hallo tent  ");
   assert.equal("text" in ok && ok.text, "hallo tent");
   assert.ok("error" in validateChat("   "));
+});
+
+test("statusText: trim en max 60", () => {
+  assert.equal(validateStatusText("  statistiek  "), "statistiek");
+  assert.equal(validateStatusText("x".repeat(80)).length, 60);
+});
+
+test("blokminuten: alleen 25 of 50", () => {
+  assert.equal(validateStudyMinutes(25), 25);
+  assert.equal(validateStudyMinutes(50), 50);
+  assert.equal(validateStudyMinutes(10), null);
+  assert.equal(validateStudyMinutes("40"), null);
 });
 
 test("avatar: preset en te grote foto", () => {
@@ -245,6 +265,99 @@ test("studeren vanuit de koffiebar brengt je terug naar je bureau", () => {
   assert.equal(back?.sittingDeskId, 15);
   assert.equal(back?.sittingSpotId, null);
   assert.equal(back?.status, "studeren");
+});
+
+test("statusText blijft staan als pauze afloopt", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 8 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.setStatus(a.user.id, "pauze", "arrest");
+  assert.equal(a.user.statusText, "arrest");
+  a.user.pauseUntil = Date.now() - 1;
+  const pauseEnded = store.tickPauses();
+  assert.equal(pauseEnded.length, 1);
+  assert.equal(pauseEnded[0].status, "studeren");
+  assert.equal(pauseEnded[0].statusText, "arrest");
+});
+
+test("statusText wijzigen wist de bloktimer niet", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 9 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.setStatus(a.user.id, "studeren", "", 25);
+  const until = a.user.studyUntil;
+  const again = store.setStatus(a.user.id, "studeren", "statistiek");
+  assert.equal(again?.statusText, "statistiek");
+  assert.equal(again?.studyUntil, until);
+});
+
+test("blok van 25 min eindigt in 5 min pauze", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 11 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.setStatus(a.user.id, "studeren", undefined, 25);
+  assert.ok(a.user.studyUntil > Date.now() + 24 * 60 * 1000);
+  a.user.studyUntil = Date.now() - 1;
+  const ended = store.tickStudyTimers();
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].status, "pauze");
+  assert.ok(ended[0].pauseUntil > Date.now() + 4 * 60 * 1000);
+  assert.equal(ended[0].studyUntil, 0);
+});
+
+test("blok van 50 min eindigt in 10 min pauze", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 13 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.setStatus(a.user.id, "studeren", undefined, 50);
+  a.user.studyUntil = Date.now() - 1;
+  const ended = store.tickStudyTimers();
+  assert.ok((ended[0]?.pauseUntil || 0) > Date.now() + 9 * 60 * 1000);
+});
+
+test("hostronde zet iedereen 50 min stil", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ firstName: "Adam", lastName: "Aerts", deskId: 1 }));
+  const b = store.join(
+    guest({ firstName: "Britt", lastName: "Beelen", deskId: 2, avatar: { kind: "preset" as const, preset: 2 } })
+  );
+  if (!("user" in a) || !("user" in b)) throw new Error("expected users");
+  store.connect(a.user.id, "s1");
+  store.connect(b.user.id, "s2");
+  store.setStatus(a.user.id, "kennismaken");
+  store.setStatus(b.user.id, "pauze", "pauze tot 11u");
+  const round = store.startQuietRound(50);
+  assert.ok("players" in round);
+  assert.equal(round.players.length, 2);
+  assert.match(round.announce, /50 min stil/);
+  assert.equal(store.get(a.user.id)?.status, "studeren");
+  assert.equal(store.get(b.user.id)?.status, "studeren");
+  assert.equal(store.get(b.user.id)?.statusText, "pauze tot 11u");
+  assert.ok((store.get(a.user.id)?.studyUntil || 0) > Date.now() + 49 * 60 * 1000);
+});
+
+test("WASD tijdens een blok schakelt naar pauze", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 14 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.setStatus(a.user.id, "studeren", undefined, 50);
+  const pub = store.stand(a.user.id);
+  assert.equal(pub?.status, "pauze");
+  assert.equal(pub?.studyUntil, 0);
+  assert.ok((pub?.pauseUntil || 0) > Date.now());
+});
+
+test("typ-bubbel gaat uit in studeermodus", () => {
+  const store = createStore(createWorld());
+  const a = store.join(guest({ deskId: 16 }));
+  if (!("user" in a)) throw new Error("expected user");
+  store.setStatus(a.user.id, "pauze");
+  store.setTyping(a.user.id, true);
+  assert.equal(a.user.typing, true);
+  store.setStatus(a.user.id, "studeren");
+  const typing = store.setTyping(a.user.id, true);
+  assert.equal(typing?.typing, false);
+  assert.equal(a.user.draft, "");
 });
 
 test("wereldmuren houden je uit de rand", () => {

@@ -71,6 +71,7 @@
     .kick{background:rgba(233,30,140,.2);color:#fff;border-radius:8px;padding:.25rem .55rem;font-size:.75rem;font-weight:700}
     .announce{display:flex;gap:8px;margin:1rem 0}
     .announce input{flex:1;background:#0c0a10;border:1px solid var(--line);border-radius:10px;color:#fff;padding:.7rem .8rem}
+    .quiet-round{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 1rem}
     .pin-card{width:min(380px,92vw);margin:18vh auto;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:1.4rem}
     .warn{color:#ffb4b4;font-size:.85rem;min-height:1.2rem}
     @media (max-width:700px){
@@ -107,6 +108,10 @@
       <input id="announce-in" maxlength="200" placeholder="Omroep naar de hele tent…"/>
       <button class="btn-primary" type="submit">Omroep</button>
     </form>
+    <div class="quiet-round">
+      <button class="btn-hud" type="button" id="quiet-25">Iedereen 25 min stil</button>
+      <button class="btn-hud" type="button" id="quiet-50">Iedereen 50 min stil</button>
+    </div>
     <h2>Bureaus 1–100</h2>
     <div class="desk-grid" id="desks"></div>
     <h2>Aanwezig</h2>

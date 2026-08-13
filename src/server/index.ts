@@ -223,6 +223,16 @@ app.post("/api/host/announce", requireHost, (req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/host/quiet-round", requireHost, (req, res) => {
+  const result = store.startQuietRound(req.body?.minutes);
+  if ("error" in result) return res.status(400).json({ error: result.error });
+  for (const pub of result.players) {
+    io.to("tent").emit("player:update", pub);
+  }
+  io.to("tent").emit("announce", { text: result.announce, at: Date.now() });
+  res.json({ ok: true, state: store.hostSnapshot() });
+});
+
 app.get("/host", (_req, res) => {
   res.sendFile(path.join(ROOT, "public/host.html"));
 });
@@ -438,8 +448,12 @@ setInterval(() => {
   }
   for (const pub of store.tickStudyTimers()) {
     io.to("tent").emit("player:update", pub);
+    const pauseMin = Math.round(((pub.pauseUntil || 0) - Date.now()) / 60000);
     emitToSocket(pub.id, (sid) =>
-      io.to(sid).emit("notice", { type: "study-end", text: "Blokronde voorbij — tijd voor een pauze." })
+      io.to(sid).emit("notice", {
+        type: "study-end",
+        text: `Blok voorbij — ${pauseMin <= 6 ? 5 : 10} min pauze.`,
+      })
     );
   }
   for (const pub of store.assignTalkCircles()) {

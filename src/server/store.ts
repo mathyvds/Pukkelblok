@@ -17,9 +17,10 @@ import {
   PROXIMITY,
   SHOUT_COOLDOWN_MS,
   STUDY_MINUTES,
+  STUDY_PAUSE_MS,
   WHISPER_PROXIMITY,
 } from "../shared/protocol";
-import { shirtColor, validateStatus, type AvatarPhoto, type AvatarPreset } from "../shared/validate";
+import { shirtColor, validateStatus, validateStatusText, validateStudyMinutes, type AvatarPhoto, type AvatarPreset } from "../shared/validate";
 import { clampMove, deskById, ICEBREAKERS, inCircle, inZone, MAX_SPEED, seatById, type World } from "../shared/world";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -66,6 +67,7 @@ export type User = {
   talkCircleId: string | null;
   dateTableId: string | null;
   studyUntil: number;
+  lastStudyMinutes: StudyMinutes;
 };
 
 type DateMatch = { a: string; b: string; endsAt: number; ice: string; tableId: string; tableLabel: string; reason?: string };
@@ -299,6 +301,7 @@ export function createStore(world: World) {
         talkCircleId: null,
         dateTableId: null,
         studyUntil: Date.now() + studyDurationMs(DEFAULT_STUDY_MINUTES),
+        lastStudyMinutes: DEFAULT_STUDY_MINUTES,
       };
       users.set(user.id, user);
       sessions.set(user.sid, user.id);
@@ -319,6 +322,7 @@ export function createStore(world: World) {
       user.talkCircleId = null;
       user.dateTableId = null;
       user.studyUntil = Date.now() + studyDurationMs(DEFAULT_STUDY_MINUTES);
+      user.lastStudyMinutes = DEFAULT_STUDY_MINUTES;
     }
 
     if (input.avatar.kind === "preset") {
@@ -432,6 +436,7 @@ export function createStore(world: World) {
     user.moving = false;
     if (desk.id !== user.homeDeskId && user.status === "studeren") {
       user.status = "pauze";
+      user.studyUntil = 0;
       if (!user.pauseUntil || user.pauseUntil < Date.now()) {
         user.pauseUntil = Date.now() + PAUSE_MS;
       }
@@ -477,19 +482,28 @@ export function createStore(world: World) {
     return publicUser(user);
   }
 
-  function setStatus(userId: string, status: unknown, statusText: unknown, studyMinutes?: unknown) {
+  function setStatus(userId: string, status: unknown, statusText?: unknown, studyMinutes?: unknown) {
     const user = get(userId);
     if (!user) return null;
     const next = validateStatus(status);
+    if (statusText !== undefined) {
+      user.statusText = validateStatusText(statusText);
+    }
+    const restartStudy = next === "studeren" && studyMinutes !== undefined;
+    if (next === user.status && !restartStudy) return publicUser(user);
     if (next === "studeren" && dates.has(userId)) {
       endDate(userId, "leave");
     }
     user.status = next;
-    user.statusText = String(statusText || "").trim().slice(0, 60);
     if (user.status === "studeren") {
       user.pauseUntil = 0;
-      user.studyUntil = Date.now() + studyDurationMs(studyMinutes);
+      user.lastStudyMinutes = parseStudyMinutes(studyMinutes);
+      user.studyUntil = Date.now() + studyDurationMs(user.lastStudyMinutes);
       user.talkCircleId = null;
+      user.typing = false;
+      user.draft = "";
+      user.bubble = "";
+      user.bubbleUntil = 0;
       const desk = deskById(world, user.homeDeskId);
       if (desk) {
         user.sittingDeskId = desk.id;
@@ -510,11 +524,27 @@ export function createStore(world: World) {
     return publicUser(user);
   }
 
+  function startQuietRound(minutes: unknown): { players: PublicPlayer[]; announce: string; minutes: StudyMinutes } | { error: string } {
+    const mins = validateStudyMinutes(minutes);
+    if (!mins) return { error: "Kies een ronde van 25 of 50 minuten." };
+    const players: PublicPlayer[] = [];
+    for (const user of users.values()) {
+      if (!user.online) continue;
+      const pub = setStatus(user.id, "studeren", undefined, mins);
+      if (pub) players.push(pub);
+    }
+    const announce =
+      mins === 50
+        ? "Iedereen 50 min stil — niet storen tot de pauze."
+        : "Iedereen 25 min stil — niet storen tot de pauze.";
+    return { players, announce, minutes: mins };
+  }
+
   function tickPauses(now = Date.now()) {
     const ended: PublicPlayer[] = [];
     for (const user of users.values()) {
       if (user.status === "pauze" && user.pauseUntil && user.pauseUntil <= now) {
-        const pub = setStatus(user.id, "studeren", "");
+        const pub = setStatus(user.id, "studeren");
         if (pub) ended.push(pub);
       }
     }
@@ -525,8 +555,11 @@ export function createStore(world: World) {
     const ended: PublicPlayer[] = [];
     for (const user of users.values()) {
       if (user.status === "studeren" && user.studyUntil && user.studyUntil <= now) {
-        const pub = setStatus(user.id, "pauze", "");
-        if (pub) ended.push(pub);
+        const mins: StudyMinutes = user.lastStudyMinutes === 25 ? 25 : 50;
+        user.studyUntil = 0;
+        user.status = "pauze";
+        user.pauseUntil = now + STUDY_PAUSE_MS[mins];
+        ended.push(publicUser(user));
       }
     }
     return ended;
@@ -949,6 +982,7 @@ export function createStore(world: World) {
     sitSpot,
     stand,
     setStatus,
+    startQuietRound,
     setTyping,
     addChat,
     addDm,

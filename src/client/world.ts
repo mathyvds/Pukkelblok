@@ -142,6 +142,15 @@ function me() {
   return (state.meId && state.players.get(state.meId)) || null;
 }
 
+export function isNearby(id: string, range?: number) {
+  const self = me();
+  const p = state.players.get(id);
+  if (!self || !p) return false;
+  if (p.id === self.id) return true;
+  const dist = Math.hypot((p.ix ?? p.x) - self.x, (p.iy ?? p.y) - self.y);
+  return dist <= (range || state.world?.proximity || 420);
+}
+
 export function walkTo(x: number, y: number) {
   const self = me();
   if (!self || self.inDate) return;
@@ -550,7 +559,7 @@ function ensureNode(p: WorldPerson) {
       <span class="st-dot"></span>
       <span class="shh" hidden>stil</span>
     </div>
-    <div class="nametag"></div>`;
+    <div class="nametag"><span class="nm"></span><span class="nm-extra"></span></div>`;
   el.addEventListener("click", (ev) => {
     ev.stopPropagation();
     if (p.id !== state.meId) state.handlers.onClickPerson?.(p.id);
@@ -572,12 +581,23 @@ function syncDom() {
     el.classList.toggle("sitting", seated);
     el.classList.toggle("face-left", p.facing === -1);
     el.classList.toggle("silent", p.status === "studeren");
+    el.classList.toggle("dnd", p.status === "studeren");
     el.classList.toggle("in-circle", Boolean(p.talkCircleId));
     (el.querySelector(".torso") as HTMLElement).style.background = p.color || "#FFE600";
     const img = el.querySelector(".face") as HTMLImageElement;
     if (img.getAttribute("src") !== p.avatarUrl) img.src = p.avatarUrl;
     const silent = p.status === "studeren";
-    el.querySelector(".nametag")!.textContent = silent ? `${p.firstName} · stil` : p.firstName;
+    const nm = el.querySelector(".nm");
+    if (nm) nm.textContent = p.firstName;
+    const extra =
+      silent
+        ? p.statusText
+          ? `${p.statusText} · Niet storen`
+          : "Niet storen"
+        : p.statusText || "";
+    const extraEl = el.querySelector(".nm-extra");
+    if (extraEl) extraEl.textContent = extra;
+    el.classList.toggle("has-extra", Boolean(extra));
     (el.querySelector(".st-dot") as HTMLElement).style.background = STATUS_COLOR[p.status] || "#22c55e";
     const shh = el.querySelector(".shh") as HTMLElement | null;
     if (shh) shh.hidden = !silent;
