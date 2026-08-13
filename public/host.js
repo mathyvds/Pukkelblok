@@ -19,6 +19,17 @@
     document.getElementById("s-desks").textContent = state.desks.filter((d) => d.taken).length + "/" + state.desks.length;
     document.getElementById("s-wait").textContent = String(state.waiting);
     document.getElementById("s-dates").textContent = String(state.dates);
+    const zone = (id) => (state.zones || []).find((z) => z.id === id)?.count || 0;
+    document.getElementById("s-study").textContent = String(zone("study"));
+    document.getElementById("s-lounge").textContent = String(zone("lounge"));
+    document.getElementById("s-bar").textContent = String(zone("cafe"));
+    if (state.board) {
+      document.getElementById("board-title").textContent = state.board.moment || state.board.title;
+      document.getElementById("board-sub").textContent = state.board.subtitle;
+      document.querySelectorAll("#day-card [data-slot]").forEach((btn) => {
+        btn.classList.toggle("on", btn.dataset.slot === state.board.slotId);
+      });
+    }
     document.getElementById("desks").innerHTML = state.desks
       .map(
         (d) =>
@@ -29,10 +40,24 @@
       .map(
         (p) => `<tr>
           <td>${esc(p.firstName)} ${esc(p.lastName)}</td>
+          <td>${esc(p.school || "—")}</td>
           <td>${esc(p.study || "—")}</td>
           <td>${esc(p.status)}</td>
           <td>${p.sittingDeskId || "—"}</td>
           <td><button class="kick" data-id="${p.id}">Zet eruit</button></td>
+        </tr>`
+      )
+      .join("");
+    document.getElementById("reports").innerHTML = (state.reports || [])
+      .slice()
+      .reverse()
+      .map(
+        (r) => `<tr>
+          <td>${new Date(r.at).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" })}</td>
+          <td>${esc(r.fromName)}</td>
+          <td>${esc(r.aboutName)}</td>
+          <td>${esc(r.reason)}</td>
+          <td><button class="kick" data-id="${r.aboutId}">Zet eruit</button></td>
         </tr>`
       )
       .join("");
@@ -109,6 +134,33 @@
     if (!text) return;
     await api("/api/host/announce", { method: "POST", body: JSON.stringify({ text }) });
     document.getElementById("announce-in").value = "";
+  });
+  document.getElementById("day-card").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-slot]");
+    if (!btn) return;
+    try {
+      const next = await api("/api/host/board", {
+        method: "POST",
+        body: JSON.stringify({ slotId: btn.dataset.slot }),
+      });
+      render(next.state);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+  document.getElementById("moments").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-moment]");
+    if (!btn) return;
+    try {
+      const id = btn.dataset.moment === "clear" ? null : btn.dataset.moment;
+      const next = await api("/api/host/moment", {
+        method: "POST",
+        body: JSON.stringify({ id }),
+      });
+      render(next.state);
+    } catch (err) {
+      alert(err.message);
+    }
   });
 
   boot();

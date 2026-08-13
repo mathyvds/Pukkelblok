@@ -16,6 +16,23 @@ export const PAUSE_MS = 10 * 60 * 1000;
 export const CHAT_COOLDOWN_MS = 700;
 export const SHOUT_COOLDOWN_MS = 60_000;
 export const DATE_WAIT_FALLBACK_MS = 45_000;
+export const DATE_CONTINUE_MS = 30_000;
+
+export const WAVES = ["👋", "☕", "📚", "💪", "💛"] as const;
+export type WaveEmoji = (typeof WAVES)[number];
+export const WAVE_COOLDOWN_MS = 2000;
+export const WAVE_MS = 2800;
+
+export const TALK_CIRCLE_CAP = 4;
+
+export const REPORT_REASONS = ["Lastigvallen", "Ongewenste berichten", "Anders"] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+export const DAY_SLOT_IDS = ["stil", "koffie", "lunch", "backstage", "speeddate", "einde"] as const;
+export type DaySlotId = (typeof DAY_SLOT_IDS)[number];
+
+export const HOST_MOMENTS = ["stand", "speeddate-open", "silence"] as const;
+export type HostMomentId = (typeof HOST_MOMENTS)[number];
 
 export type PublicPlayer = {
   id: string;
@@ -28,6 +45,8 @@ export type PublicPlayer = {
   facing: 1 | -1;
   moving: boolean;
   sittingDeskId: number | null;
+  sittingTableId: string | null;
+  talkCircleId: string | null;
   homeDeskId: number;
   age: number;
   school: string;
@@ -38,6 +57,7 @@ export type PublicPlayer = {
   typing: boolean;
   draft: string;
   bubble: string;
+  waving: string;
   inDate: boolean;
 };
 
@@ -47,7 +67,7 @@ export type ChatMessage = {
   firstName: string;
   lastName: string;
   text: string;
-  scope: "near" | "tent";
+  scope: "near" | "tent" | "circle";
   at: number;
 };
 
@@ -69,6 +89,7 @@ export type MovePayload = {
 export type PlayerMove = MovePayload & {
   id: string;
   sittingDeskId: number | null;
+  sittingTableId: string | null;
 };
 
 export type Desk = {
@@ -89,6 +110,7 @@ export type SpeedTable = {
   w: number;
   h: number;
   label: string;
+  seats: [{ x: number; y: number }, { x: number; y: number }];
 };
 
 export type Zone = {
@@ -100,6 +122,51 @@ export type Zone = {
   h: number;
 };
 
+export type TalkCircle = {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  r: number;
+  cap: number;
+};
+
+export type SchoolCorner = {
+  id: "corner-pxl" | "corner-ucll" | "corner-uhasselt" | "corner-andere";
+  school: School;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+export type DaySlot = {
+  id: DaySlotId;
+  time: string;
+  title: string;
+  subtitle: string;
+};
+
+export type InfoBoard = {
+  slotId: DaySlotId;
+  title: string;
+  subtitle: string;
+  moment: string | null;
+};
+
+export type ZoneCount = { id: string; name: string; count: number };
+
+export type Report = {
+  id: string;
+  fromId: string;
+  fromName: string;
+  aboutId: string;
+  aboutName: string;
+  reason: string;
+  at: number;
+};
+
 export type PublicWorld = {
   width: number;
   height: number;
@@ -107,6 +174,10 @@ export type PublicWorld = {
   desks: Desk[];
   speedTables: SpeedTable[];
   zones: Zone[];
+  talkCircles: TalkCircle[];
+  schoolCorners: SchoolCorner[];
+  daySlots: DaySlot[];
+  board: InfoBoard;
   proximity: number;
   pauseMs: number;
 };
@@ -118,7 +189,12 @@ export type HelloPayload = {
   world: PublicWorld;
   online: number;
   max: number;
+  board: InfoBoard;
+  blockedIds: string[];
+  tableIces: { id: string; ice: string }[];
 };
+
+export type IceSource = "profile" | "bar";
 
 export type ClientToServerEvents = {
   move: (data: MovePayload) => void;
@@ -128,10 +204,18 @@ export type ClientToServerEvents = {
   typing: (data: { typing: boolean; draft: string }) => void;
   chat: (text: string) => void;
   shout: (text: string) => void;
+  wave: (emoji: WaveEmoji) => void;
+  "ice:say": (data: { source: IceSource; otherId?: string }) => void;
   "dm:open": (otherId: string) => void;
   dm: (data: { to: string; text: string }) => void;
+  block: (otherId: string) => void;
+  unblock: (otherId: string) => void;
+  report: (data: { id: string; reason: string }) => void;
   "speeddate:join": (data?: { preferSameStudy?: boolean }) => void;
   "speeddate:leave": () => void;
+  "speeddate:continue": (data: { yes: boolean }) => void;
+  "pause:extend": () => void;
+  "pause:hang": () => void;
 };
 
 export type ServerToClientEvents = {
@@ -144,21 +228,30 @@ export type ServerToClientEvents = {
   "players:moves": (moves: PlayerMove[]) => void;
   "player:typing": (payload: { id: string; typing: boolean; draft: string; x?: number; y?: number }) => void;
   "player:bubble-end": (payload: { id: string }) => void;
+  "player:wave": (payload: { id: string; emoji: WaveEmoji }) => void;
   chat: (msg: ChatMessage) => void;
   dm: (msg: DirectMessage) => void;
   "dm:history": (payload: { with: string; messages: DirectMessage[] }) => void;
   notice: (payload: { type: string; text: string }) => void;
   announce: (payload: { text: string; at: number }) => void;
   kicked: (payload: { reason: string }) => void;
+  "ice:prompt": (payload: { text: string; source: IceSource }) => void;
+  blocked: (payload: { id: string; blocked: boolean }) => void;
+  board: (payload: InfoBoard) => void;
+  "table:ice": (payload: { id: string; ice: string | null }) => void;
   "speeddate:queued": (payload: { queued: boolean; position: number }) => void;
   "speeddate:matched": (payload: {
     partner: PublicPlayer;
     endsAt: number;
     ice: string;
     waiting: number;
+    tableId: string;
+    tableLabel: string;
   }) => void;
   "speeddate:ended": (payload: { reason: string }) => void;
   "speeddate:waiting": (payload: { waiting: number }) => void;
+  "speeddate:continue-ask": (payload: { partner: PublicPlayer; until: number }) => void;
+  "speeddate:continue-result": (payload: { keep: boolean; partnerId: string }) => void;
 };
 
 export const joinSchema = z.object({

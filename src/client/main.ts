@@ -5,6 +5,7 @@ import type {
   PublicPlayer,
   ServerToClientEvents,
   Status,
+  WaveEmoji,
 } from "../shared/protocol";
 import { DESK_COUNT } from "../shared/protocol";
 import * as world from "./world";
@@ -51,6 +52,10 @@ const ui = {
   dmEmpty: $("dm-empty"),
   dmBadge: $("dm-badge"),
   deskHint: $("desk-hint"),
+  onboard: $("onboard-banner"),
+  minimap: $("minimap") as HTMLCanvasElement,
+  dateContinue: $("date-continue"),
+  profIceText: $("prof-ice-text"),
 };
 
 const state = {
@@ -65,6 +70,9 @@ const state = {
   dateTimer: 0 as number | ReturnType<typeof setInterval>,
   camStream: null as MediaStream | null,
   lastTyping: 0,
+  blocked: new Set<string>(),
+  reportTarget: null as string | null,
+  profileId: null as string | null,
 };
 
 function show(name: Screen) {
@@ -272,6 +280,7 @@ function enterTent(user: PublicPlayer) {
     viewport: $("viewport"),
     layer: $("world-dom"),
     avatarsEl: $("avatars"),
+    minimap: ui.minimap,
     handlers: {
       onMove: (pos) => state.socket?.emit("move", pos),
       onSit: (deskId) => {
@@ -284,6 +293,7 @@ function enterTent(user: PublicPlayer) {
         ui.deskHint.textContent = state.me?.homeDeskId ? `Jouw bureau: ${state.me.homeDeskId}` : "";
       },
       onClickPerson: openProfile,
+      onBarIce: () => state.socket?.emit("ice:say", { source: "bar" }),
     },
   });
   connectSocket();
@@ -313,7 +323,10 @@ function connectSocket() {
   socket.on("hello", (payload) => {
     world.setWorld(payload.world);
     world.setMe(payload.you.id);
+    world.setBoard(payload.board);
+    world.replaceTableIces(payload.tableIces);
     state.me = payload.you;
+    state.blocked = new Set(payload.blockedIds);
     state.players.clear();
     for (const p of payload.players) {
       state.players.set(p.id, p);
@@ -324,7 +337,7 @@ function connectSocket() {
     ui.chatMsgs.innerHTML = "";
     payload.chat.forEach(addChatLine);
     renderOnline();
-    notify(`Welkom in de Blokbar, ${payload.you.firstName}.`);
+    syncChatPlaceholder();
   });
 
   socket.on("presence", (p) => {
@@ -336,15 +349,16 @@ function connectSocket() {
     state.players.set(p.id, p);
     world.upsert(p);
     renderOnline();
-    if (!existed) notify(`${p.firstName} komt de tent binnen.`);
+    if (!existed && p.id !== state.me?.id && isNearbyPlayer(p)) notify(`${p.firstName} komt de tent binnen.`);
   });
   socket.on("player:leave", ({ id }) => {
     const left = state.players.get(id);
     if (!left) return;
+    const nearby = isNearbyPlayer(left);
     state.players.delete(id);
     world.remove(id);
     renderOnline();
-    if (id !== state.me?.id) notify(`${left.firstName} verlaat de tent.`);
+    if (id !== state.me?.id && nearby) notify(`${left.firstName} verlaat de tent.`);
   });
   socket.on("player:update", (p) => {
     const merged = { ...(state.players.get(p.id) || p), ...p };
@@ -356,6 +370,7 @@ function connectSocket() {
         else if (merged.homeDeskId) ui.deskHint.textContent = `Jouw bureau: ${merged.homeDeskId}`;
         ($("status-select") as HTMLSelectElement).value = merged.status;
         syncPauseClock(merged);
+        syncChatPlaceholder();
     }
     renderOnline();
   });
@@ -391,6 +406,15 @@ function connectSocket() {
     if (state.dmTarget === otherId) renderDm();
   });
   socket.on("notice", (n) => {
+    if (n.type === "onboard") {
+      showOnboard(n.text);
+      return;
+    }
+    if (n.type === "pause-nudge") {
+      $("modal-pause").classList.add("open");
+      notify(n.text);
+      return;
+    }
     notify(n.text);
     if (n.type === "pause-end") {
       ($("status-select") as HTMLSelectElement).value = "studeren";
@@ -398,6 +422,25 @@ function connectSocket() {
     }
   });
   socket.on("announce", (a) => showAnnounce(a.text));
+  socket.on("board", (board) => world.setBoard(board));
+  socket.on("table:ice", (payload) => world.setTableIce(payload.id, payload.ice));
+  socket.on("blocked", ({ id, blocked }) => {
+    if (blocked) state.blocked.add(id);
+    else state.blocked.delete(id);
+  });
+  socket.on("ice:prompt", (payload) => {
+    if (state.profileId) {
+      ui.profIceText.hidden = false;
+      ui.profIceText.textContent = payload.text;
+    }
+  });
+  socket.on("player:wave", (payload) => {
+    const prev = state.players.get(payload.id);
+    if (!prev) return;
+    const merged = { ...prev, waving: payload.emoji, bubble: payload.emoji };
+    state.players.set(payload.id, merged);
+    world.upsert(merged);
+  });
   socket.on("kicked", (k) => {
     notify(k.reason || "Je bent uit de tent gezet.");
     setTimeout(() => location.reload(), 1200);
@@ -410,12 +453,12 @@ function connectSocket() {
     $("date-leave").hidden = !q.queued;
   });
   socket.on("speeddate:matched", (payload) => {
-    openDm(payload.partner.id);
     $("date-ice").hidden = false;
     $("date-ice").textContent = `IJsbreker: ${payload.ice}`;
     $("date-timer").hidden = false;
+    ui.dateContinue.hidden = true;
     $("modal-date").classList.add("open");
-    $("date-copy").textContent = `Je date met ${fullName(payload.partner)}.`;
+    $("date-copy").textContent = `Je zit aan ${payload.tableLabel} met ${fullName(payload.partner)}.`;
     $("date-join").hidden = true;
     $("date-leave").hidden = true;
     tickDate(payload.endsAt);
@@ -423,17 +466,35 @@ function connectSocket() {
   });
   socket.on("speeddate:ended", (payload) => {
     const reasons: Record<string, string> = {
-      time: "De drie minuten zijn om. Je mag verder chatten via berichten.",
-      disconnect: "Je date is even weg. Je mag verder chatten via berichten.",
-      kick: "Je date is de tent uit. Je mag verder chatten via berichten.",
+      keep: "Jullie houden contact. Chat verder via berichten.",
+      decline: "Geen verder chat — tot een volgende keer.",
+      timeout: "Geen verder chat — tot een volgende keer.",
+      disconnect: "Je date is even weg.",
+      kick: "Je date is de tent uit.",
       leave: "De speeddate is gestopt.",
+      time: "De drie minuten zijn om.",
     };
-    $("date-copy").textContent = reasons[payload.reason] || reasons.time;
+    $("date-copy").textContent = reasons[payload.reason] || reasons.timeout;
     $("date-timer").hidden = true;
     $("date-ice").hidden = true;
+    ui.dateContinue.hidden = true;
     $("date-join").hidden = false;
     $("date-leave").hidden = true;
     clearInterval(state.dateTimer);
+  });
+  socket.on("speeddate:continue-ask", (payload) => {
+    $("modal-date").classList.add("open");
+    $("date-copy").textContent = `Wil je verder chatten met ${fullName(payload.partner)}?`;
+    $("date-join").hidden = true;
+    $("date-leave").hidden = true;
+    ui.dateContinue.hidden = false;
+    $("date-timer").hidden = false;
+    tickDate(payload.until);
+  });
+  socket.on("speeddate:continue-result", (payload) => {
+    ui.dateContinue.hidden = true;
+    if (payload.keep) openDm(payload.partnerId);
+    else notify("Geen verder chat — tot een volgende keer.");
   });
   socket.on("connect_error", () => {
     notify("Sessie verlopen. Maak opnieuw een gastaccount.");
@@ -442,15 +503,52 @@ function connectSocket() {
   });
 }
 
-function addChatLine(msg: { from: string; firstName: string; text: string; at: number; scope?: "near" | "tent" }) {
+function addChatLine(msg: { from: string; firstName: string; text: string; at: number; scope?: "near" | "tent" | "circle" }) {
+  if (state.blocked.has(msg.from) && msg.from !== state.me?.id) return;
   const mine = msg.from === state.me?.id;
   const el = document.createElement("div");
   el.className = "chat-msg" + (mine ? " me" : "");
   const time = new Date(msg.at).toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" });
-  const scope = msg.scope === "tent" ? `<span class="msg-scope">hele tent</span>` : "";
+  const scope =
+    msg.scope === "tent"
+      ? `<span class="msg-scope">hele tent</span>`
+      : msg.scope === "circle"
+        ? `<span class="msg-scope">bank</span>`
+        : "";
   el.innerHTML = `<div class="msg-head"><span class="msg-name">${esc(msg.firstName)}</span>${scope}<span class="msg-time">${time}</span></div><div class="msg-body">${esc(msg.text)}</div>`;
   ui.chatMsgs.appendChild(el);
   ui.chatMsgs.scrollTop = ui.chatMsgs.scrollHeight;
+}
+
+function isNearbyPlayer(p: PublicPlayer) {
+  const me = state.me;
+  if (!me) return false;
+  if (me.talkCircleId && p.talkCircleId && me.talkCircleId === p.talkCircleId) return true;
+  return Math.hypot(p.x - me.x, p.y - me.y) <= 420;
+}
+
+function showOnboard(text: string) {
+  ui.onboard.hidden = false;
+  ui.onboard.textContent = text;
+  ui.onboard.onclick = () => {
+    ui.onboard.hidden = true;
+  };
+  window.setTimeout(() => {
+    ui.onboard.hidden = true;
+  }, 12000);
+}
+
+function syncChatPlaceholder() {
+  ui.chatIn.placeholder = state.me?.talkCircleId
+    ? "Zeg iets tegen deze bank…"
+    : "Zeg iets tegen wie in de buurt is…";
+}
+
+function walkToDesk(deskId: number) {
+  const desk = world.deskOf(deskId);
+  if (!desk) return;
+  if (deskId === state.me?.homeDeskId) world.walkTo(desk.seatX, desk.seatY);
+  else world.walkTo(desk.seatX, desk.seatY + 36);
 }
 
 function renderOnline() {
@@ -477,6 +575,7 @@ function renderOnline() {
 function openProfile(id: string) {
   const p = state.players.get(id);
   if (!p) return;
+  state.profileId = id;
   ($("prof-avi") as HTMLImageElement).src = p.avatarUrl;
   $("prof-name").textContent = fullName(p);
   $("prof-status").textContent = statusLabel(p);
@@ -484,11 +583,40 @@ function openProfile(id: string) {
     ? `Zit aan bureau ${p.sittingDeskId}`
     : `Bureau ${p.homeDeskId} · loopt rond`;
   $("prof-school").textContent = `${p.age} jaar · ${p.school} · ${p.program}`;
+  ui.profIceText.hidden = true;
+  $("prof-walk").textContent = `Loop naar bureau ${p.homeDeskId}`;
+  $("prof-block").textContent = state.blocked.has(id) ? "Deblokkeer" : "Blokkeer";
   $("prof-dm").onclick = () => {
     $("modal-profile").classList.remove("open");
     openDm(p.id);
   };
+  $("prof-walk").onclick = () => {
+    $("modal-profile").classList.remove("open");
+    walkToDesk(p.homeDeskId);
+  };
+  $("prof-wave").onclick = () => {
+    state.socket?.emit("wave", "👋");
+  };
+  $("prof-ice").onclick = () => {
+    state.socket?.emit("ice:say", { source: "profile", otherId: p.id });
+  };
+  $("prof-block").onclick = () => {
+    if (state.blocked.has(p.id)) state.socket?.emit("unblock", p.id);
+    else state.socket?.emit("block", p.id);
+    $("modal-profile").classList.remove("open");
+  };
+  $("prof-report").onclick = () => {
+    $("modal-profile").classList.remove("open");
+    openReport(p.id);
+  };
   $("modal-profile").classList.add("open");
+}
+
+function openReport(id: string) {
+  const p = state.players.get(id);
+  state.reportTarget = id;
+  $("report-who").textContent = p ? `Over ${fullName(p)}` : "Melding";
+  $("modal-report").classList.add("open");
 }
 
 function openDm(id: string) {
@@ -515,6 +643,7 @@ function renderDm() {
 }
 
 function onDm(msg: DirectMessage) {
+  if (state.blocked.has(msg.from) && msg.from !== state.me?.id) return;
   const other = msg.from === state.me?.id ? msg.to : msg.from;
   if (!state.dms.has(other)) state.dms.set(other, []);
   state.dms.get(other)!.push(msg);
@@ -606,7 +735,48 @@ $("date-join").addEventListener("click", () =>
   })
 );
 $("date-leave").addEventListener("click", () => state.socket?.emit("speeddate:leave"));
+$("date-yes").addEventListener("click", () => state.socket?.emit("speeddate:continue", { yes: true }));
+$("date-no").addEventListener("click", () => state.socket?.emit("speeddate:continue", { yes: false }));
 $("profile-close").addEventListener("click", () => $("modal-profile").classList.remove("open"));
+$("report-close").addEventListener("click", () => $("modal-report").classList.remove("open"));
+$("modal-report").querySelectorAll("[data-reason]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (!state.reportTarget) return;
+    state.socket?.emit("report", { id: state.reportTarget, reason: (btn as HTMLElement).dataset.reason || "Anders" });
+    $("modal-report").classList.remove("open");
+  });
+});
+$("dm-block").addEventListener("click", () => {
+  if (!state.dmTarget) return;
+  state.socket?.emit("block", state.dmTarget);
+});
+$("dm-report").addEventListener("click", () => {
+  if (!state.dmTarget) return;
+  openReport(state.dmTarget);
+});
+document.querySelectorAll("#wave-bar [data-wave]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const emoji = (btn as HTMLElement).dataset.wave as WaveEmoji;
+    if (emoji) state.socket?.emit("wave", emoji);
+  });
+});
+$("pause-extend").addEventListener("click", () => {
+  state.socket?.emit("pause:extend");
+  $("modal-pause").classList.remove("open");
+});
+$("pause-hang").addEventListener("click", () => {
+  state.socket?.emit("pause:hang");
+  ($("status-select") as HTMLSelectElement).value = "kennismaken";
+  $("modal-pause").classList.remove("open");
+});
+$("pause-study").addEventListener("click", () => {
+  state.socket?.emit("status", { status: "studeren" });
+  ($("status-select") as HTMLSelectElement).value = "studeren";
+  $("modal-pause").classList.remove("open");
+});
+ui.deskHint.addEventListener("click", () => {
+  if (state.me?.homeDeskId) walkToDesk(state.me.homeDeskId);
+});
 
 function tickDate(endsAt: number) {
   clearInterval(state.dateTimer);
@@ -624,8 +794,13 @@ let pauseClock: ReturnType<typeof setInterval> | 0 = 0;
 function syncPauseClock(user: PublicPlayer) {
   clearInterval(pauseClock);
   const el = $("pause-timer");
-  if (user.status !== "pauze" || !user.pauseUntil) {
+  if (user.status !== "pauze") {
     el.hidden = true;
+    return;
+  }
+  if (!user.pauseUntil) {
+    el.hidden = false;
+    el.textContent = "Pauze · lounge";
     return;
   }
   el.hidden = false;

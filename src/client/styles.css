@@ -760,7 +760,10 @@ kbd {
   margin-left: 4px;
 }
 
-#bot-hud {
+#desk-hint {
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
   height: 44px;
   display: flex;
   align-items: center;
@@ -885,6 +888,117 @@ kbd {
   gap: 48px;
 }
 
+.house-rules {
+  margin: 1.6rem auto 0;
+  max-width: 420px;
+  text-align: left;
+  background: #151515;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+}
+.house-rules h2 {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  letter-spacing: 0.04em;
+  color: var(--color-pkp);
+  margin-bottom: 0.4rem;
+}
+.house-rules ul {
+  list-style: none;
+  color: var(--color-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.house-rules li + li {
+  margin-top: 0.25rem;
+}
+
+.wave-bar {
+  display: flex;
+  gap: 4px;
+}
+.wave-bar button {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  font-size: 1rem;
+}
+.wave-bar button:hover {
+  border-color: var(--color-pkp);
+}
+
+.person .bubble.wave {
+  font-size: 1.4rem;
+  max-width: none;
+  background: #111;
+  border: 2px solid var(--color-pkp);
+  color: #fff;
+  padding: 4px 10px;
+}
+
+#minimap {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 200px;
+  height: 155px;
+  z-index: 6;
+  border: 2px solid var(--color-pkp);
+  border-radius: 8px;
+  background: #111;
+  cursor: pointer;
+  image-rendering: pixelated;
+}
+
+#onboard-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  background: #111;
+  color: #fff;
+  border: 2px solid var(--color-pkp);
+  font-weight: 700;
+  border-radius: 12px;
+  padding: 0.7rem 1.1rem;
+  max-width: min(560px, 70%);
+  text-align: center;
+  cursor: pointer;
+}
+
+.prof-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 1rem;
+}
+.btn-ghost.wide,
+.btn-primary.wide {
+  width: 100%;
+}
+.btn-tiny {
+  background: #1a1a1a;
+  color: #fff;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.danger {
+  color: #ff7aa2 !important;
+  border-color: #e91e8c !important;
+}
+.lede-sm {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  margin: 0.6rem 0;
+}
+
 @media (max-width: 860px) {
   #side-panel {
     width: 100%;
@@ -900,5 +1014,12 @@ kbd {
     flex-wrap: wrap;
     height: auto;
     padding: 8px;
+  }
+  #minimap {
+    width: 140px;
+    height: 108px;
+  }
+  .wave-bar {
+    order: 20;
   }
 }

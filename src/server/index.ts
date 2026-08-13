@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import cookieParser from "cookie-parser";
 import { Server } from "socket.io";
-import { createWorld, publicWorld } from "../shared/world";
+import { createWorld, HOST_MOMENT_COPY, onboardText, publicWorld } from "../shared/world";
 import { createStore } from "./store";
 import {
   MAX_ONLINE,
@@ -12,8 +12,18 @@ import {
   validateChat,
   validateNames,
   validateProfile,
+  validateReportReason,
+  validateWave,
 } from "../shared/validate";
-import { joinSchema, type ClientToServerEvents, type ServerToClientEvents } from "../shared/protocol";
+import {
+  DAY_SLOT_IDS,
+  HOST_MOMENTS,
+  joinSchema,
+  type ClientToServerEvents,
+  type DaySlotId,
+  type HostMomentId,
+  type ServerToClientEvents,
+} from "../shared/protocol";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../..");
@@ -38,6 +48,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
 const world = createWorld();
 const store = createStore(world);
 const leaveWait = new Map<string, ReturnType<typeof setTimeout>>();
+const circleFullWarned = new Set<string>();
 
 function cancelLeaveWait(userId: string) {
   const timer = leaveWait.get(userId);
@@ -196,6 +207,33 @@ app.post("/api/host/announce", requireHost, (req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/host/board", requireHost, (req, res) => {
+  const slotId = String(req.body?.slotId || "") as DaySlotId;
+  if (!DAY_SLOT_IDS.includes(slotId)) return res.status(400).json({ error: "Onbekend moment op de dagkaart." });
+  const board = store.setBoard({ slotId });
+  io.to("tent").emit("board", board);
+  io.to("tent").emit("announce", { text: `${board.title} — ${board.subtitle}`, at: Date.now() });
+  res.json({ ok: true, state: store.hostSnapshot() });
+});
+
+app.post("/api/host/moment", requireHost, (req, res) => {
+  const id = req.body?.id;
+  if (id === null || id === "clear") {
+    const board = store.setBoard({ moment: null });
+    io.to("tent").emit("board", board);
+    res.json({ ok: true, state: store.hostSnapshot() });
+    return;
+  }
+  if (!HOST_MOMENTS.includes(id as HostMomentId)) {
+    return res.status(400).json({ error: "Onbekend moment." });
+  }
+  const copy = HOST_MOMENT_COPY[id as HostMomentId];
+  const board = store.setBoard({ moment: copy.moment });
+  io.to("tent").emit("board", board);
+  io.to("tent").emit("announce", { text: copy.announce, at: Date.now() });
+  res.json({ ok: true, state: store.hostSnapshot() });
+});
+
 app.get("/host", (_req, res) => {
   res.sendFile(path.join(ROOT, "public/host.html"));
 });
@@ -242,9 +280,13 @@ io.on("connection", (socket) => {
     world: publicWorld(world),
     online: store.onlineCount(),
     max: MAX_ONLINE,
+    board: store.getBoard(),
+    blockedIds: store.blockedIdsFor(user.id),
+    tableIces: store.tableIces(),
   });
   if (announceJoin) {
     socket.broadcast.to("tent").emit("player:join", store.publicUser(user));
+    socket.emit("notice", { type: "onboard", text: onboardText(user.homeDeskId) });
   } else {
     socket.broadcast.to("tent").emit("player:update", store.publicUser(user));
   }
@@ -253,6 +295,8 @@ io.on("connection", (socket) => {
   socket.on("move", (data) => {
     const correction = store.move(userId, Number(data?.x), Number(data?.y), Number(data?.facing), Boolean(data?.moving));
     if (correction) socket.emit("player:correct", correction);
+    const circles = store.refreshTalkCircles();
+    for (const pub of circles.changed) io.to("tent").emit("player:update", pub);
   });
 
   socket.on("sit", (deskId) => {
@@ -272,8 +316,77 @@ io.on("connection", (socket) => {
   });
 
   socket.on("status", (data) => {
+    const prevDate = store.getDate(userId);
     const pub = store.setStatus(userId, data?.status, data?.statusText);
     if (pub) io.to("tent").emit("player:update", pub);
+    if (prevDate && !store.getDate(userId)) {
+      for (const uid of [prevDate.a, prevDate.b]) {
+        const person = store.get(uid);
+        if (person) io.to("tent").emit("player:update", store.publicUser(person));
+        emitToSocket(uid, (sid) => io.to(sid).emit("speeddate:ended", { reason: "leave" }));
+      }
+      io.to("tent").emit("table:ice", { id: prevDate.tableId, ice: null });
+    }
+  });
+
+  socket.on("pause:extend", () => {
+    const pub = store.extendPause(userId);
+    if (pub) io.to("tent").emit("player:update", pub);
+  });
+
+  socket.on("pause:hang", () => {
+    const pub = store.hangOut(userId);
+    if (pub) io.to("tent").emit("player:update", pub);
+  });
+
+  socket.on("wave", (emoji) => {
+    const parsed = validateWave(emoji);
+    if ("error" in parsed) return socket.emit("notice", { type: "error", text: parsed.error });
+    const result = store.wave(userId, parsed.emoji);
+    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
+    io.to("tent").emit("player:update", result.user);
+    io.to("tent").emit("player:wave", { id: userId, emoji: parsed.emoji });
+  });
+
+  socket.on("ice:say", (data) => {
+    const result = store.sayIce(userId, data?.source === "bar" ? "bar" : "profile", data?.otherId);
+    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
+    io.to("tent").emit("player:update", result.user);
+    const prefix = data?.source === "bar" ? "IJsbreker aan de bar: " : "";
+    socket.emit("ice:prompt", { text: result.text, source: data?.source === "bar" ? "bar" : "profile" });
+    socket.emit("notice", { type: "ice", text: `${prefix}${result.text}` });
+  });
+
+  socket.on("block", (otherId) => {
+    const id = String(otherId || "");
+    const prevDate = store.getDate(userId);
+    const result = store.block(userId, id);
+    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
+    socket.emit("blocked", { id, blocked: true });
+    socket.emit("notice", { type: "blocked", text: "Geblokkeerd. Je ziet elkaars berichten niet meer." });
+    if (prevDate && !store.getDate(userId)) {
+      for (const uid of [prevDate.a, prevDate.b]) {
+        const person = store.get(uid);
+        if (person) io.to("tent").emit("player:update", store.publicUser(person));
+        emitToSocket(uid, (sid) => io.to(sid).emit("speeddate:ended", { reason: "leave" }));
+      }
+      io.to("tent").emit("table:ice", { id: prevDate.tableId, ice: null });
+    }
+  });
+
+  socket.on("unblock", (otherId) => {
+    const id = String(otherId || "");
+    const result = store.unblock(userId, id);
+    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
+    socket.emit("blocked", { id, blocked: false });
+  });
+
+  socket.on("report", (data) => {
+    const reason = validateReportReason(data?.reason);
+    if ("error" in reason) return socket.emit("notice", { type: "error", text: reason.error });
+    const result = store.report(userId, String(data?.id || ""), reason.reason);
+    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
+    socket.emit("notice", { type: "report", text: "Melding is bij de host. Dankjewel." });
   });
 
   socket.on("typing", (data) => {
@@ -346,6 +459,23 @@ io.on("connection", (socket) => {
     socket.emit("speeddate:queued", { queued: false, position: 0 });
   });
 
+  socket.on("speeddate:continue", (data) => {
+    const result = store.answerContinue(userId, Boolean(data?.yes));
+    if ("error" in result) return socket.emit("notice", { type: "error", text: result.error });
+    if ("pending" in result) return;
+    const reason = result.done.reason || (result.keep ? "keep" : "decline");
+    for (const uid of [result.done.a, result.done.b]) {
+      const partnerId = uid === result.done.a ? result.done.b : result.done.a;
+      emitToSocket(uid, (sid) => {
+        io.to(sid).emit("speeddate:continue-result", { keep: result.keep, partnerId });
+        io.to(sid).emit("speeddate:ended", { reason });
+      });
+      const person = store.get(uid);
+      if (person) io.to("tent").emit("player:update", store.publicUser(person));
+    }
+    io.to("tent").emit("table:ice", { id: result.done.tableId, ice: null });
+  });
+
   socket.on("disconnect", () => {
     const dropped = store.dropSocket(userId, socket.id);
     if (dropped.stale || !dropped.user) return;
@@ -368,29 +498,82 @@ setInterval(() => {
 setInterval(() => {
   const expired = store.expireBubbles();
   for (const id of expired) io.to("tent").emit("player:bubble-end", { id });
-  for (const pub of store.tickPauses()) {
+  const circles = store.refreshTalkCircles();
+  for (const pub of circles.changed) io.to("tent").emit("player:update", pub);
+  const rejected = new Set(circles.rejected);
+  for (const id of rejected) {
+    if (!circleFullWarned.has(id)) {
+      emitToSocket(id, (sid) => io.to(sid).emit("notice", { type: "circle-full", text: "Deze bank is vol (max 4)." }));
+      circleFullWarned.add(id);
+    }
+  }
+  for (const id of [...circleFullWarned]) {
+    if (!rejected.has(id)) circleFullWarned.delete(id);
+  }
+  for (const pub of store.nudgePauses()) {
     io.to("tent").emit("player:update", pub);
     emitToSocket(pub.id, (sid) =>
-      io.to(sid).emit("notice", { type: "pause-end", text: "Pauze voorbij — terug aan de blok." })
+      io.to(sid).emit("notice", {
+        type: "pause-nudge",
+        text: "Pauze is om. Blijven hangen? Kies Kennismaken, of nog 10 min pauze.",
+      })
     );
   }
-  const { started, ended, waiting } = store.matchDates();
+  const { started, asking, ended, waiting } = store.matchDates();
   for (const date of started) {
     const a = store.get(date.a);
     const b = store.get(date.b);
     if (!a || !b) continue;
+    const table = world.speedTables.find((t) => t.id === date.tableId);
+    const tableLabel = table?.label || "Tafel";
+    io.to("tent").emit("player:update", store.publicUser(a));
+    io.to("tent").emit("player:update", store.publicUser(b));
+    io.to("tent").emit("table:ice", { id: date.tableId, ice: date.ice });
     if (a.socketId) {
-      io.to(a.socketId).emit("speeddate:matched", { partner: store.publicUser(b), endsAt: date.endsAt, ice: date.ice, waiting });
+      io.to(a.socketId).emit("speeddate:matched", {
+        partner: store.publicUser(b),
+        endsAt: date.endsAt,
+        ice: date.ice,
+        waiting,
+        tableId: date.tableId,
+        tableLabel,
+      });
     }
     if (b.socketId) {
-      io.to(b.socketId).emit("speeddate:matched", { partner: store.publicUser(a), endsAt: date.endsAt, ice: date.ice, waiting });
+      io.to(b.socketId).emit("speeddate:matched", {
+        partner: store.publicUser(a),
+        endsAt: date.endsAt,
+        ice: date.ice,
+        waiting,
+        tableId: date.tableId,
+        tableLabel,
+      });
+    }
+  }
+  for (const date of asking) {
+    const a = store.get(date.a);
+    const b = store.get(date.b);
+    if (a?.socketId && b) {
+      io.to(a.socketId).emit("speeddate:continue-ask", { partner: store.publicUser(b), until: date.continueUntil || Date.now() });
+    }
+    if (b?.socketId && a) {
+      io.to(b.socketId).emit("speeddate:continue-ask", { partner: store.publicUser(a), until: date.continueUntil || Date.now() });
     }
   }
   for (const date of ended) {
     const a = store.get(date.a);
     const b = store.get(date.b);
-    if (a?.socketId) io.to(a.socketId).emit("speeddate:ended", { reason: date.reason || "time" });
-    if (b?.socketId) io.to(b.socketId).emit("speeddate:ended", { reason: date.reason || "time" });
+    if (a?.socketId) {
+      io.to(a.socketId).emit("speeddate:continue-result", { keep: false, partnerId: date.b });
+      io.to(a.socketId).emit("speeddate:ended", { reason: date.reason || "timeout" });
+    }
+    if (b?.socketId) {
+      io.to(b.socketId).emit("speeddate:continue-result", { keep: false, partnerId: date.a });
+      io.to(b.socketId).emit("speeddate:ended", { reason: date.reason || "timeout" });
+    }
+    if (a) io.to("tent").emit("player:update", store.publicUser(a));
+    if (b) io.to("tent").emit("player:update", store.publicUser(b));
+    io.to("tent").emit("table:ice", { id: date.tableId, ice: null });
   }
   if (waiting) io.to("tent").emit("speeddate:waiting", { waiting });
 }, 1000);

@@ -1,4 +1,15 @@
-import { DESK_COUNT, MAX_AVATAR_BYTES, MAX_CHAT, MAX_ONLINE, statuses, type Status } from "./protocol";
+import {
+  DESK_COUNT,
+  MAX_AVATAR_BYTES,
+  MAX_CHAT,
+  MAX_ONLINE,
+  REPORT_REASONS,
+  statuses,
+  WAVES,
+  type ReportReason,
+  type Status,
+  type WaveEmoji,
+} from "./protocol";
 
 export { MAX_ONLINE, MAX_AVATAR_BYTES, MAX_CHAT };
 
@@ -54,6 +65,21 @@ export function validateChat(text: unknown): ChatOk | Fail {
   const msg = String(text || "").replace(/\s+/g, " ").trim().slice(0, MAX_CHAT);
   if (!msg) return { error: "Leeg bericht." };
   return { text: msg };
+}
+
+export function validateWave(emoji: unknown): { emoji: WaveEmoji } | Fail {
+  if (typeof emoji === "string" && (WAVES as readonly string[]).includes(emoji)) {
+    return { emoji: emoji as WaveEmoji };
+  }
+  return { error: "Onbekende zwaai." };
+}
+
+export function validateReportReason(reason: unknown): { reason: ReportReason } | Fail {
+  const value = String(reason || "").trim();
+  if ((REPORT_REASONS as readonly string[]).includes(value)) {
+    return { reason: value as ReportReason };
+  }
+  return { error: "Kies een reden om te melden." };
 }
 
 export function parseAvatar(payload: unknown): AvatarPreset | AvatarPhoto | Fail {

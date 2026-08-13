@@ -1,5 +1,5 @@
-import type { PlayerMove, PublicPlayer, PublicWorld, Status } from "../shared/protocol";
-import { clampMove, solidsOf, type World } from "../shared/world";
+import type { InfoBoard, PlayerMove, PublicPlayer, PublicWorld, Status } from "../shared/protocol";
+import { clampMove, inBox, solidsOf, type World } from "../shared/world";
 
 export type WorldPerson = PublicPlayer & {
   walkT: number;
@@ -14,6 +14,7 @@ export type WorldHandlers = {
   onSit?: (deskId: number) => void;
   onStand?: () => void;
   onClickPerson?: (id: string) => void;
+  onBarIce?: () => void;
 };
 
 type TouchDir = "up" | "down" | "left" | "right";
@@ -48,6 +49,9 @@ const state = {
   lastPos: { x: 0, y: 0, moving: false },
   handlers: {} as WorldHandlers,
   mounted: false,
+  board: null as InfoBoard | null,
+  tableIces: new Map<string, string>(),
+  minimap: null as HTMLCanvasElement | null,
 };
 
 export function mount(opts: {
@@ -56,6 +60,7 @@ export function mount(opts: {
   layer: HTMLElement;
   avatarsEl: HTMLElement;
   handlers: WorldHandlers;
+  minimap?: HTMLCanvasElement;
 }) {
   state.canvas = opts.canvas;
   state.ctx = opts.canvas.getContext("2d");
@@ -63,19 +68,51 @@ export function mount(opts: {
   state.layer = opts.layer;
   state.avatarsEl = opts.avatarsEl;
   state.handlers = opts.handlers;
+  state.minimap = opts.minimap || null;
   resize();
   if (!state.mounted) {
     window.addEventListener("resize", resize);
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
     state.canvas.addEventListener("click", onClick);
+    state.minimap?.addEventListener("click", onMinimapClick);
     state.mounted = true;
     loop(performance.now());
   }
 }
 
+export function setBoard(board: InfoBoard) {
+  state.board = board;
+  if (state.world) state.world.board = board;
+}
+
+export function setTableIce(id: string, ice: string | null) {
+  if (ice) state.tableIces.set(id, ice);
+  else state.tableIces.delete(id);
+}
+
+export function replaceTableIces(ices: { id: string; ice: string }[]) {
+  state.tableIces.clear();
+  for (const item of ices) state.tableIces.set(item.id, item.ice);
+}
+
+export function walkTo(x: number, y: number) {
+  const self = me();
+  if (self?.sittingTableId) return;
+  if (self?.sittingDeskId) {
+    state.handlers.onStand?.();
+    self.sittingDeskId = null;
+  }
+  state.target = { x, y };
+}
+
+export function deskOf(id: number) {
+  return state.world?.desks.find((d) => d.id === id) || null;
+}
+
 export function setWorld(world: PublicWorld) {
   state.world = { ...world, solids: solidsOf(world) };
+  state.board = world.board;
   state.cache = null;
   if (state.layer) {
     state.layer.style.width = `${world.width}px`;
@@ -119,6 +156,7 @@ export function applyMoves(moves: PlayerMove[]) {
     p.facing = m.facing;
     p.moving = m.moving;
     p.sittingDeskId = m.sittingDeskId;
+    p.sittingTableId = m.sittingTableId;
   }
 }
 
@@ -166,6 +204,12 @@ function onClick(e: MouseEvent) {
     return;
   }
   const self = me();
+  if (self?.sittingTableId) return;
+  const bar = state.world?.zones.find((z) => z.id === "bar");
+  const cafeAisle = state.world?.zones.find((z) => z.id === "cafe");
+  if ((cafeAisle && inBox(cafeAisle, worldPt.x, worldPt.y)) || (bar && inBox(bar, worldPt.x, worldPt.y))) {
+    state.handlers.onBarIce?.();
+  }
   const desk = hitDesk(worldPt.x, worldPt.y);
   if (desk) {
     state.handlers.onSit?.(desk.id);
@@ -174,6 +218,16 @@ function onClick(e: MouseEvent) {
   }
   if (self?.sittingDeskId) state.handlers.onStand?.();
   state.target = worldPt;
+}
+
+function onMinimapClick(e: MouseEvent) {
+  const w = state.world;
+  const mm = state.minimap;
+  if (!w || !mm) return;
+  const rect = mm.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * w.width;
+  const y = ((e.clientY - rect.top) / rect.height) * w.height;
+  walkTo(x, y);
 }
 
 function screenToWorld(clientX: number, clientY: number) {
@@ -232,11 +286,13 @@ function update(dt: number) {
   if (!self || !world) return;
   const dir = wantedDir();
   let moving = false;
-  if (self.sittingDeskId && (dir.dx || dir.dy)) {
+  if (self.sittingTableId) {
+    self.moving = false;
+  } else if (self.sittingDeskId && (dir.dx || dir.dy)) {
     state.handlers.onStand?.();
     self.sittingDeskId = null;
   }
-  if (!self.sittingDeskId) {
+  if (!self.sittingDeskId && !self.sittingTableId) {
     if (dir.dx || dir.dy) {
       const len = Math.hypot(dir.dx, dir.dy) || 1;
       tryMove(self, (dir.dx / len) * SPEED * dt, (dir.dy / len) * SPEED * dt);
@@ -352,12 +408,6 @@ function drawStatic(ctx: CanvasRenderingContext2D, w: PublicWorld) {
 
   if (info) {
     roundRect(ctx, info.x + 10, info.y + 10, info.w - 20, info.h - 20, 16, "#111");
-    ctx.fillStyle = "#FFE600";
-    ctx.font = "800 22px Geist, sans-serif";
-    ctx.fillText("Speeddate 16:30", info.x + 40, info.y + 58);
-    ctx.fillStyle = "#ddd";
-    ctx.font = "500 15px Geist, sans-serif";
-    ctx.fillText("Drie minuten. Eén ijsbreker. Daarna verder chatten.", info.x + 40, info.y + 88);
   }
 
   if (lounge) {
@@ -365,12 +415,24 @@ function drawStatic(ctx: CanvasRenderingContext2D, w: PublicWorld) {
     ctx.fillStyle = "#FFE600";
     ctx.font = "800 20px Geist, sans-serif";
     ctx.fillText("Lounge", lounge.x + 22, lounge.y + 40);
+    for (const corner of w.schoolCorners) {
+      roundRect(ctx, corner.x, corner.y, corner.w, corner.h, 14, "#1a1a1a");
+      ctx.fillStyle = "#FFE600";
+      ctx.font = "800 22px Geist, sans-serif";
+      ctx.fillText(corner.label, corner.x + 18, corner.y + 48);
+      ctx.fillStyle = "#888";
+      ctx.font = "500 13px Geist, sans-serif";
+      ctx.fillText("herkenningshoek", corner.x + 18, corner.y + 72);
+    }
     ctx.fillStyle = "#2a2a2a";
-    const couches = Math.max(6, Math.floor((lounge.h - 80) / 150));
-    for (let i = 0; i < couches; i++) {
+    for (const circle of w.talkCircles) {
       ctx.beginPath();
-      ctx.ellipse(lounge.x + lounge.w / 2, lounge.y + 120 + i * 150, 70, 36, 0, 0, Math.PI * 2);
+      ctx.ellipse(circle.x, circle.y, 70, 36, 0, 0, Math.PI * 2);
       ctx.fill();
+      ctx.fillStyle = "#FFE600";
+      ctx.font = "700 13px Geist, sans-serif";
+      ctx.fillText(circle.label, circle.x - 28, circle.y + 4);
+      ctx.fillStyle = "#2a2a2a";
     }
   }
 
@@ -436,8 +498,95 @@ function draw() {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+  drawLive(ctx, w);
   ctx.restore();
   state.layer.style.transform = `translate(${-state.camX}px, ${-state.camY}px)`;
+  drawMinimap();
+}
+
+function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, cy);
+      line = word;
+      cy += lineHeight;
+    } else line = test;
+  }
+  if (line) ctx.fillText(line, x, cy);
+}
+
+function drawLive(ctx: CanvasRenderingContext2D, w: PublicWorld) {
+  const board = state.board || w.board;
+  const info = w.zones.find((z) => z.id === "info");
+  if (info && board) {
+    ctx.fillStyle = "#FFE600";
+    ctx.font = "800 22px Geist, sans-serif";
+    ctx.fillText(board.moment || board.title, info.x + 40, info.y + 58);
+    ctx.fillStyle = "#ddd";
+    ctx.font = "500 15px Geist, sans-serif";
+    ctx.fillText(board.subtitle, info.x + 40, info.y + 88);
+  }
+
+  for (const circle of w.talkCircles) {
+    let n = 0;
+    for (const p of state.players.values()) if (p.talkCircleId === circle.id) n += 1;
+    ctx.strokeStyle = n ? "rgba(255,230,0,.7)" : "rgba(255,230,0,.22)";
+    ctx.lineWidth = n ? 4 : 2;
+    ctx.beginPath();
+    ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  for (const t of w.speedTables) {
+    const ice = state.tableIces.get(t.id);
+    if (!ice) continue;
+    ctx.fillStyle = "#FFE600";
+    ctx.font = "700 14px Geist, sans-serif";
+    wrapText(ctx, ice, t.x + 8, t.y - 12, t.w - 12, 16);
+  }
+}
+
+function drawMinimap() {
+  const mm = state.minimap;
+  const w = state.world;
+  const self = me();
+  if (!mm || !w) return;
+  const ctx = mm.getContext("2d");
+  if (!ctx) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cssW = mm.clientWidth || 200;
+  const cssH = mm.clientHeight || 155;
+  if (mm.width !== cssW * dpr || mm.height !== cssH * dpr) {
+    mm.width = cssW * dpr;
+    mm.height = cssH * dpr;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  const sx = cssW / w.width;
+  const sy = cssH / w.height;
+  ctx.save();
+  ctx.scale(sx, sy);
+  if (state.cache) ctx.drawImage(state.cache, 0, 0);
+  else {
+    ctx.fillStyle = "#141414";
+    ctx.fillRect(0, 0, w.width, w.height);
+  }
+  for (const p of state.players.values()) {
+    ctx.fillStyle = p.id === state.meId ? "#FFE600" : "#888";
+    ctx.beginPath();
+    ctx.arc(p.ix ?? p.x, p.iy ?? p.y, p.id === state.meId ? 28 : 18, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+  if (self) {
+    ctx.strokeStyle = "rgba(255,230,0,.85)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(state.camX * sx, state.camY * sy, state.viewW * sx, state.viewH * sy);
+  }
 }
 
 function ensureNode(p: WorldPerson) {
@@ -471,7 +620,7 @@ function syncDom() {
     el.style.transform = `translate(${x}px, ${y}px)`;
     el.style.zIndex = String(100 + Math.floor(y));
     el.classList.toggle("walking", Boolean(p.moving) && !p.sittingDeskId);
-    el.classList.toggle("sitting", Boolean(p.sittingDeskId));
+    el.classList.toggle("sitting", Boolean(p.sittingDeskId || p.sittingTableId));
     el.classList.toggle("face-left", p.facing === -1);
     (el.querySelector(".torso") as HTMLElement).style.background = p.color || "#FFE600";
     const img = el.querySelector(".face") as HTMLImageElement;
@@ -482,6 +631,9 @@ function syncDom() {
     if (p.typing && p.draft) {
       bubble.textContent = p.draft;
       bubble.className = "bubble on typing";
+    } else if (p.waving) {
+      bubble.textContent = p.waving;
+      bubble.className = "bubble on wave";
     } else if (p.bubble) {
       bubble.textContent = p.bubble;
       bubble.className = "bubble on";

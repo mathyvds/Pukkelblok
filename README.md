@@ -41,12 +41,13 @@ Host-dashboard: http://localhost:3000/host
 
 - Gastlogin met voornaam, familienaam, leeftijd, school en studierichting (cookie, 7 dagen)
 - **Bureaus 1–100** bij joinen = dezelfde tafel als in de echte tent; je start daar in studeermodus
-- Status **Studeren** zet je terug aan jouw bureau; **Pauze (10 min)** daarna terug naar blokken; Kennismaken om rond te lopen
-- Avatar: foto nemen, uploaden, of een look kiezen
-- Tot 100 studenten, WASD / klik / touch
-- **Proximity-chat** (dichtbij) + 📣 hele tent; DMs lekken niet als spraakwolk
-- Speeddate, optioneel dezelfde studierichting eerst
-- Host (`/host`): kick, omroep, bezetting 1–100
+- Status **Studeren** zet je terug aan jouw bureau; **Pauze** of **Kennismaken** om in de lounge te blijven
+- Avatar: look kiezen (standaard); foto of camera als optie
+- Tot 100 studenten, WASD / klik / touch, minimap
+- Zwaai, praatcirkels in de lounge, schoolhoekjes (PXL / UCLL / UHasselt / Andere)
+- **Proximity-chat** + bank-bubbels + 📣 hele tent; DMs, blokkeren en melden
+- Speeddate aan een echte tafel, ijsbreker erboven, daarna ja/nee om verder te chatten
+- Host (`/host`): dagkaart, momenten, zonebezetting, kick, omroep
 
 ## Aanbevelingen
 
